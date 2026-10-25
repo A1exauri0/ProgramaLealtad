@@ -1,12 +1,13 @@
 // ==============================================================================
 // Seeder Inicial (Equivalente a Laravel DatabaseSeeder)
-// Siembra: Catálogo de 12 permisos, 3 roles oficiales y usuario Administrador
+// Siembra: Catálogo de 12 permisos, 3 roles oficiales, 3 usuarios de prueba,
+// 1 cuenta de portal activada y catálogo inicial de recompensas
 // ==============================================================================
 
 import bcrypt from 'bcryptjs'
 import { eq } from 'drizzle-orm'
 import { db } from '../conexion'
-import { roles, rolesPermisos, usuarios } from '../schema'
+import { roles, rolesPermisos, usuarios, cuentasPortal, recompensas, clientes } from '../schema'
 
 // Catálogo oficial de los 12 permisos fijos requeridos por la prueba
 export const LISTA_PERMISOS = [
@@ -24,18 +25,11 @@ export const LISTA_PERMISOS = [
   { clave: 'gestionar_tokens_api', descripcion: 'Gestionar tokens de API' },
 ] as const
 
-// Matriz inicial de roles y permisos según Sección 3 de la prueba técnica
-export const MATRIZ_ROLES_INICIALES = [
+// Definición oficial de los 3 roles con su matriz de permisos
+export const ROLES_DEFINICION = [
   {
     nombre: 'Administrador',
-    descripcion: 'Control total de la plataforma y configuraciones de seguridad',
-    esSistema: true,
-    permisos: LISTA_PERMISOS.map((p) => p.clave), // 12 permisos
-  },
-  {
-    nombre: 'Gerente',
-    descripcion: 'Supervisión de clientes, reportes, canjes y catálogo de recompensas',
-    esSistema: false,
+    descripcion: 'Control total de la plataforma, roles, sincronización y auditoría',
     permisos: [
       'ver_resumen_panel',
       'buscar_cliente_detalle',
@@ -45,54 +39,67 @@ export const MATRIZ_ROLES_INICIALES = [
       'gestionar_catalogo_recompensas',
       'gestionar_canjes',
       'generar_acceso_portal_cliente',
-    ], // 8 permisos
+      'ejecutar_sincronizacion',
+      'gestionar_usuarios',
+      'gestionar_roles_permisos',
+      'gestionar_tokens_api',
+    ],
+  },
+  {
+    nombre: 'Gerente',
+    descripcion: 'Supervisión operativa, visualización financiera, reportes y catálogo',
+    permisos: [
+      'ver_resumen_panel',
+      'buscar_cliente_detalle',
+      'ver_montos_financieros',
+      'ver_listas_riesgo_cumpleanos',
+      'exportar_reportes_csv',
+      'gestionar_catalogo_recompensas',
+      'gestionar_canjes',
+      'generar_acceso_portal_cliente',
+    ],
   },
   {
     nombre: 'Atención a clientes',
-    descripcion: 'Consulta de clientes, soporte de canjes y restablecimiento de acceso',
-    esSistema: false,
+    descripcion: 'Soporte básico a clientes, consulta de saldo y recompensas (Sin montos financieros)',
     permisos: [
       'ver_resumen_panel',
       'buscar_cliente_detalle',
       'ver_listas_riesgo_cumpleanos',
       'gestionar_canjes',
       'generar_acceso_portal_cliente',
-    ], // 5 permisos (sin ver montos financieros)
+    ],
   },
 ]
 
 export async function sembrarDatosIniciales() {
-  console.log('🌱 Ejecutando Seeder Inicial...')
+  console.log('🌱 Iniciando sembrado de datos iniciales...')
 
   // 1. Sembrar Roles y sus Permisos
-  for (const rolDefinicion of MATRIZ_ROLES_INICIALES) {
+  const mapaRoles = new Map<string, number>()
+
+  for (const rolDefinicion of ROLES_DEFINICION) {
     let [rolExistente] = await db
       .select()
       .from(roles)
       .where(eq(roles.nombre, rolDefinicion.nombre))
 
     if (!rolExistente) {
-      const [nuevoRol] = await db
+      ;[rolExistente] = await db
         .insert(roles)
         .values({
           nombre: rolDefinicion.nombre,
           descripcion: rolDefinicion.descripcion,
-          esSistema: rolDefinicion.esSistema,
         })
         .returning()
-      rolExistente = nuevoRol
       console.log(`  ➕ Rol creado: ${rolDefinicion.nombre}`)
-    } else {
-      console.log(`  ℹ️ Rol ya existente: ${rolDefinicion.nombre}`)
     }
 
     const rolId = rolExistente?.id
     if (!rolId) continue
 
-    // Limpiar permisos existentes del rol para asegurar correspondencia 1:1 exacta con la actividad
-    await db.delete(rolesPermisos).where(eq(rolesPermisos.rolId, rolId))
+    mapaRoles.set(rolDefinicion.nombre, rolId)
 
-    // Insertar permisos oficiales del rol
     for (const permisoClave of rolDefinicion.permisos) {
       await db
         .insert(rolesPermisos)
@@ -102,45 +109,152 @@ export async function sembrarDatosIniciales() {
         })
         .onConflictDoNothing()
     }
-    console.log(`  🔑 Permisos asignados a ${rolDefinicion.nombre}: ${rolDefinicion.permisos.length}`)
   }
 
-  // 2. Sembrar Usuario Administrador Inicial
-  const correoAdmin = process.env.ADMIN_CORREO || 'adrianalejandrovazquez@gmail.com'
-  const passwordAdmin = process.env.ADMIN_PASSWORD || 'ZGpAnpnZgOvZiAZY'
-
-  const [rolAdmin] = await db
-    .select()
-    .from(roles)
-    .where(eq(roles.nombre, 'Administrador'))
-
-  if (!rolAdmin) {
-    throw new Error('No se encontró el rol Administrador.')
-  }
-
-  const [adminExistente] = await db
-    .select()
-    .from(usuarios)
-    .where(eq(usuarios.correo, correoAdmin))
-
-  const passwordHash = await bcrypt.hash(passwordAdmin, 10)
-
-  if (!adminExistente) {
-    await db.insert(usuarios).values({
+  // 2. Sembrar los 3 Usuarios de Prueba Oficiales
+  const usuariosPrueba = [
+    {
       nombre: 'Administrador General',
-      correo: correoAdmin,
-      passwordHash,
-      rolId: rolAdmin.id,
-      activo: true,
-    })
-    console.log(`  👤 Usuario Administrador creado: ${correoAdmin}`)
-  } else {
-    // Actualizar hash por si cambió la contraseña en .env
+      correo: process.env.ADMIN_CORREO || 'adrianalejandrovazquez@gmail.com',
+      password: process.env.ADMIN_PASSWORD || 'Admin123456!',
+      rol: 'Administrador',
+    },
+    {
+      nombre: 'Gerente Operativo',
+      correo: 'gerente@tienda.com',
+      password: 'Gerente123456!',
+      rol: 'Gerente',
+    },
+    {
+      nombre: 'Ejecutivo Atención',
+      correo: 'atencion@tienda.com',
+      password: 'Atencion123456!',
+      rol: 'Atención a clientes',
+    },
+  ]
+
+  for (const u of usuariosPrueba) {
+    const rolId = mapaRoles.get(u.rol)
+    if (!rolId) continue
+
+    const [usuarioExistente] = await db
+      .select()
+      .from(usuarios)
+      .where(eq(usuarios.correo, u.correo))
+
+    const passwordHash = await bcrypt.hash(u.password, 10)
+
+    if (!usuarioExistente) {
+      await db.insert(usuarios).values({
+        nombre: u.nombre,
+        correo: u.correo,
+        passwordHash,
+        rolId,
+        activo: true,
+      })
+      console.log(`  👤 Usuario ${u.rol} creado: ${u.correo} (${u.password})`)
+    } else {
+      await db
+        .update(usuarios)
+        .set({ passwordHash, rolId, activo: true })
+        .where(eq(usuarios.id, usuarioExistente.id))
+      console.log(`  ℹ️ Usuario ${u.rol} actualizado: ${u.correo}`)
+    }
+  }
+
+  // 3. Activar Cuenta Portal para el Cliente #1 (Franz Dickinson)
+  const passwordCliente = 'Cliente123456!'
+  const passwordHashCliente = await bcrypt.hash(passwordCliente, 10)
+
+  // Verificar que el cliente 1 exista
+  const [clienteUno] = await db.select().from(clientes).where(eq(clientes.id, 1)).limit(1)
+  if (clienteUno) {
     await db
-      .update(usuarios)
-      .set({ passwordHash, rolId: rolAdmin.id, activo: true })
-      .where(eq(usuarios.id, adminExistente.id))
-    console.log(`  ℹ️ Usuario Administrador actualizado: ${correoAdmin}`)
+      .insert(cuentasPortal)
+      .values({
+        clienteId: 1,
+        passwordHash: passwordHashCliente,
+        estadoAcceso: 'activo',
+        requiereCambioPassword: false,
+      })
+      .onConflictDoUpdate({
+        target: cuentasPortal.clienteId,
+        set: {
+          passwordHash: passwordHashCliente,
+          estadoAcceso: 'activo',
+          requiereCambioPassword: false,
+          actualizadoEn: new Date(),
+        },
+      })
+    console.log(`  📱 Cliente #1 activado en Portal: ${clienteUno.correo} (${passwordCliente})`)
+  }
+
+  // 4. Sembrar Catálogo Inicial de Recompensas
+  const recompensasIniciales = [
+    {
+      nombre: 'Cupón de Descuento $200 MXN',
+      tipo: 'descuento',
+      descripcion: 'Válido en cualquier compra en la tienda oficial',
+      puntosRequeridos: 2000,
+      nivelMinimo: 'Bronce',
+      descuentoTipo: 'monto_fijo',
+      descuentoValor: '200.00',
+      vigenciaDias: 30,
+      stock: null,
+      activo: true,
+    },
+    {
+      nombre: 'Cupón 15% Descuento en Tienda',
+      tipo: 'descuento',
+      descripcion: 'Aplica sobre el subtotal de tu próxima orden',
+      puntosRequeridos: 3500,
+      nivelMinimo: 'Bronce',
+      descuentoTipo: 'porcentaje',
+      descuentoValor: '15.00',
+      compraMinimaMxn: '500.00',
+      vigenciaDias: 30,
+      stock: null,
+      activo: true,
+    },
+    {
+      nombre: 'Termo Acero Inoxidable 750ml Edición Lealtad',
+      tipo: 'producto',
+      descripcion: 'Mantiene bebidas frías 24h y calientes 12h. Envío a domicilio',
+      puntosRequeridos: 5000,
+      nivelMinimo: 'Bronce',
+      stock: 25,
+      activo: true,
+    },
+    {
+      nombre: 'Mochila Ejecutiva Impermeable Antirrobo',
+      tipo: 'producto',
+      descripcion: 'Con compartimento acolchado para laptop de hasta 16"',
+      puntosRequeridos: 8000,
+      nivelMinimo: 'Plata',
+      stock: 10,
+      activo: true,
+    },
+    {
+      nombre: 'Smartwatch Deportivo Pulso Pro',
+      tipo: 'producto',
+      descripcion: 'Monitoreo de frecuencia cardíaca, GPS y sumergible 50m',
+      puntosRequeridos: 15000,
+      nivelMinimo: 'Oro',
+      stock: 3,
+      activo: true,
+    },
+  ]
+
+  for (const r of recompensasIniciales) {
+    const [recExistente] = await db
+      .select({ id: recompensas.id })
+      .from(recompensas)
+      .where(eq(recompensas.nombre, r.nombre))
+
+    if (!recExistente) {
+      await db.insert(recompensas).values(r)
+      console.log(`  🎁 Recompensa sembrada: ${r.nombre} (${r.puntosRequeridos} pts)`)
+    }
   }
 
   console.log('✅ Seeder completado exitosamente.')
