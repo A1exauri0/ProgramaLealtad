@@ -104,6 +104,7 @@ const categorias: CategoriaSidebar[] = [
       { etiqueta: 'En Riesgo', ruta: '/admin/riesgo', icono: 'i-lucide-triangle-alert', permiso: 'ver_listas_riesgo_cumpleanos' },
       { etiqueta: 'Cumpleaños', ruta: '/admin/cumpleanios', icono: 'i-lucide-cake', permiso: 'ver_listas_riesgo_cumpleanos' },
       { etiqueta: 'Recompensas', ruta: '/admin/recompensas', icono: 'i-lucide-gift', permiso: 'gestionar_catalogo_recompensas' },
+      { etiqueta: 'Canjes', ruta: '/admin/canjes', icono: 'i-lucide-ticket', permiso: 'gestionar_canjes' },
     ],
   },
   {

@@ -82,17 +82,13 @@
               td: 'py-2.5 px-4 text-sm text-neutral-800 border-b border-neutral-100',
             }"
           >
-            <!-- Reenvío de slots personalizados que no sean 'acciones-cell' -->
+            <!-- Reenvío de slots de celdas personalizados excluyendo slots reservados -->
             <template
-              v-for="(_, nombreSlot) in $slots"
+              v-for="nombreSlot in slotsDinamicos"
               :key="nombreSlot"
               #[nombreSlot]="slotProps"
             >
-              <slot
-                v-if="nombreSlot !== 'acciones-cell' && nombreSlot !== 'acciones' && nombreSlot !== 'filtros' && nombreSlot !== 'footer'"
-                :name="nombreSlot"
-                v-bind="slotProps || {}"
-              />
+              <slot :name="nombreSlot" v-bind="slotProps || {}" />
             </template>
 
             <!-- Slot para celda de acciones: usa slot personalizado o botones de acción estándar -->
@@ -336,6 +332,16 @@ const emit = defineEmits<{
   (e: 'editar', item: any): void
   (e: 'eliminar', item: any): void
 }>()
+
+// ------------------------------------------------------------------------------
+// SLOTS DINÁMICOS FILTRADOS
+// ------------------------------------------------------------------------------
+const slots = useSlots()
+const slotsDinamicos = computed(() => {
+  return Object.keys(slots).filter(
+    nombre => !['acciones-cell', 'acciones', 'filtros', 'footer', 'default'].includes(nombre)
+  )
+})
 
 // ------------------------------------------------------------------------------
 // ESTADO Y MÉTODOS DEL BUSCADOR INTEGRADO

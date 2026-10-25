@@ -13,11 +13,36 @@
 }
 
 /* ------------------------------------------------------------------------------
-   TEMA BLANCO Y NEGRO
+   TEMA BLANCO Y NEGRO (Variables de contraste Nuxt UI)
    ------------------------------------------------------------------------------ */
 :root {
   --ui-primary: var(--ui-color-neutral-900);
   --ui-bg: #ffffff;
+  --ui-bg-elevated: #f5f5f5;
+  --ui-bg-accented: #e5e5e5;
+  --ui-bg-muted: #fafafa;
+  --ui-text: #171717;
+  --ui-text-highlighted: #0a0a0a;
+  --ui-text-muted: #525252;
+  --ui-text-dimmed: #737373;
+  --ui-border: #e5e5e5;
+  --ui-border-accented: #d4d4d4;
+}
+
+/* ------------------------------------------------------------------------------
+   ELEMENTOS DE SELECCIÓN Y DROPDOWNS (Legibilidad y contraste)
+   ------------------------------------------------------------------------------ */
+[data-slot="item"],
+[data-slot="itemLabel"],
+[data-slot="value"] {
+  color: #171717 !important;
+  font-weight: 500;
+}
+
+[data-slot="item"]:hover,
+[data-slot="item"][data-highlighted] {
+  color: #000000 !important;
+  background-color: #f5f5f5 !important;
 }
 
 body {

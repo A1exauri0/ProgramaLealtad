@@ -32,6 +32,32 @@
           </div>
         </div>
       </div>
+
+      <!-- Acceso al Portal del Cliente -->
+      <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+        <div class="text-left sm:text-right">
+          <span class="text-[11px] text-neutral-400 block font-medium">Estado del Portal</span>
+          <UBadge
+            :color="detalleCliente?.cuentaPortal?.estadoAcceso === 'activo' ? 'success' : 'neutral'"
+            variant="subtle"
+            size="xs"
+          >
+            {{ detalleCliente?.cuentaPortal?.estadoAcceso === 'activo' ? 'Portal Activo' : 'Sin Acceso Activado' }}
+          </UBadge>
+        </div>
+
+        <UButton
+          v-if="tienePermiso('generar_acceso_portal_cliente')"
+          color="neutral"
+          variant="solid"
+          size="sm"
+          icon="i-lucide-key-round"
+          :loading="generandoAcceso"
+          @click="solicitarAccesoPortal"
+        >
+          {{ detalleCliente?.cuentaPortal?.estadoAcceso === 'activo' ? 'Restablecer Clave Portal' : 'Generar Acceso al Portal' }}
+        </UButton>
+      </div>
     </div>
 
     <!-- Tarjetas de Información Rápida (KpiCards) -->
@@ -231,6 +257,67 @@
         </div>
       </template>
     </TablaCrud>
+
+    <!-- Modal: Acceso al Portal Generado (AccesoPortalModal) -->
+    <div
+      v-if="mostrarModalAcceso && credencialesGeneradas"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+    >
+      <div class="bg-white border border-neutral-200 rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl">
+        <div class="flex items-center justify-between border-b border-neutral-200 pb-3">
+          <div class="flex items-center gap-2.5">
+            <div class="size-9 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-700">
+              <UIcon name="i-lucide-key" class="size-5" />
+            </div>
+            <div>
+              <h2 class="text-lg font-bold text-neutral-900">Credenciales del Portal</h2>
+              <p class="text-xs text-neutral-500">Contraseña temporal de un solo uso</p>
+            </div>
+          </div>
+          <button class="text-neutral-400 hover:text-neutral-600 text-lg" @click="mostrarModalAcceso = false">✕</button>
+        </div>
+
+        <div class="space-y-4 text-xs">
+          <div class="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 flex items-start gap-2.5">
+            <UIcon name="i-lucide-info" class="size-4 shrink-0 mt-0.5 text-amber-600" />
+            <div>
+              <span class="font-bold block">Contraseña de un solo uso</span>
+              <span>Entrega esta clave al cliente. Al iniciar sesión en el portal, el sistema le exigirá definir una contraseña nueva personal.</span>
+            </div>
+          </div>
+
+          <div class="space-y-2.5 p-3.5 bg-neutral-50 rounded-xl border border-neutral-200">
+            <div>
+              <span class="text-neutral-400 block font-medium">Correo Electrónico (Usuario)</span>
+              <span class="font-bold text-neutral-900 font-mono text-xs">{{ credencialesGeneradas.correo }}</span>
+            </div>
+            <div>
+              <span class="text-neutral-400 block font-medium">Contraseña Temporal Generada</span>
+              <div class="flex items-center justify-between gap-2 mt-1">
+                <span class="font-bold text-neutral-900 font-mono text-sm tracking-wider bg-white px-3 py-1.5 rounded-lg border border-neutral-200 select-all flex-1">
+                  {{ credencialesGeneradas.passwordTemporal }}
+                </span>
+                <UButton
+                  color="neutral"
+                  variant="outline"
+                  size="xs"
+                  :icon="copiado ? 'i-lucide-check' : 'i-lucide-copy'"
+                  @click="copiarCredenciales"
+                >
+                  {{ copiado ? '¡Copiado!' : 'Copiar' }}
+                </UButton>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end pt-3 border-t border-neutral-200">
+          <UButton color="neutral" variant="solid" @click="mostrarModalAcceso = false">
+            Entendido y Cerrar
+          </UButton>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -253,17 +340,104 @@ definePageMeta({
 // ------------------------------------------------------------------------------
 const route = useRoute()
 const clienteId = route.params.id as string
+const toast = useToast()
+const { tienePermiso } = useAuth()
 
 const pestanaActiva = ref<'movimientos' | 'pedidos' | 'pagos'>('movimientos')
+
+// Estado para acceso al portal
+const generandoAcceso = ref(false)
+const credencialesGeneradas = ref<{
+  clienteId: number
+  correo: string
+  passwordTemporal: string
+  estadoAcceso: string
+  urlPortal: string
+} | null>(null)
+const mostrarModalAcceso = ref(false)
+const copiado = ref(false)
 
 // ------------------------------------------------------------------------------
 // CARGA DE DATOS DE LA FICHA
 // ------------------------------------------------------------------------------
 const requestFetch = useRequestFetch()
-const { data: detalleCliente } = await useAsyncData<any>(
+const { data: detalleCliente, refresh: refrescarCliente } = await useAsyncData<any>(
   `admin-cliente-${clienteId}`,
   () => requestFetch(`/api/admin/clientes/${clienteId}`)
 )
+
+// ------------------------------------------------------------------------------
+// ACCIONES DE ACCESO AL PORTAL
+// ------------------------------------------------------------------------------
+async function solicitarAccesoPortal() {
+  if (!detalleCliente.value?.cliente?.correo) {
+    toast.add({
+      title: 'Cliente sin correo',
+      description: 'El cliente debe tener un correo electrónico registrado para habilitar su acceso al portal.',
+      color: 'warning',
+    })
+    return
+  }
+
+  generandoAcceso.value = true
+  try {
+    const respuesta = await $fetch<{
+      ok: boolean
+      mensaje: string
+      datos: {
+        clienteId: number
+        correo: string
+        passwordTemporal: string
+        estadoAcceso: string
+        urlPortal: string
+      }
+    }>(`/api/admin/clientes/${clienteId}/generar-acceso`, {
+      method: 'POST',
+    })
+
+    credencialesGeneradas.value = respuesta.datos
+    mostrarModalAcceso.value = true
+    await refrescarCliente()
+
+    toast.add({
+      title: 'Credenciales generadas',
+      description: respuesta.mensaje,
+      color: 'success',
+    })
+  } catch (error: any) {
+    toast.add({
+      title: 'Error al generar credenciales',
+      description: error.data?.message || error.message || 'No se pudo generar el acceso.',
+      color: 'error',
+    })
+  } finally {
+    generandoAcceso.value = false
+  }
+}
+
+async function copiarCredenciales() {
+  if (!credencialesGeneradas.value) return
+  const texto = `Portal de Clientes:\nURL: ${credencialesGeneradas.value.urlPortal}\nUsuario: ${credencialesGeneradas.value.correo}\nContraseña Temporal: ${credencialesGeneradas.value.passwordTemporal}\n\n*Nota: Se te solicitará crear una nueva contraseña en tu primer inicio de sesión.*`
+
+  try {
+    await navigator.clipboard.writeText(texto)
+    copiado.value = true
+    setTimeout(() => {
+      copiado.value = false
+    }, 2500)
+    toast.add({
+      title: 'Copiado al portapapeles',
+      description: 'Las credenciales están listas para ser enviadas al cliente.',
+      color: 'success',
+    })
+  } catch {
+    toast.add({
+      title: 'Error al copiar',
+      description: 'Por favor copia el texto manualmente.',
+      color: 'warning',
+    })
+  }
+}
 
 // ------------------------------------------------------------------------------
 // DEFINICIÓN DE COLUMNAS PARA UTable

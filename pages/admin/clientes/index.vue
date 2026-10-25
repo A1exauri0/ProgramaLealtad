@@ -17,35 +17,41 @@
       :total-registros="totalRegistros"
       :pagina-actual="paginaActual"
       :tamanio-pagina="limitePorPagina"
+      :mostrar-boton-ver="true"
+      texto-boton-ver="Ver Ficha"
       @update:busqueda="() => { paginaActual = 1; aplicarFiltros() }"
       @cambiar-pagina="cambiarPagina"
       @cambiar-tamanio="cambiarTamanio"
+      @ver="irAFichaCliente"
     >
       <!-- Slot de Filtros Adicionales en la Barra de la Tabla -->
       <template #filtros>
         <div class="flex items-center gap-2">
           <!-- Filtro por Nivel -->
-          <select
+          <USelectMenu
             v-model="filtroNivel"
-            class="px-2.5 py-1.5 rounded-lg border border-neutral-300 bg-white text-xs font-medium focus:outline-none focus:ring-1 focus:ring-neutral-900"
-            @change="aplicarFiltros"
-          >
-            <option value="">Todos los niveles</option>
-            <option value="Bronce">Bronce</option>
-            <option value="Plata">Plata</option>
-            <option value="Oro">Oro</option>
-          </select>
+            :items="opcionesNivel"
+            value-key="value"
+            label-key="label"
+            :search-input="false"
+            :ui="{ value: 'text-neutral-900 font-medium', item: 'text-neutral-900 font-medium' }"
+            size="sm"
+            class="w-40"
+            @update:model-value="aplicarFiltros"
+          />
 
           <!-- Filtro por Riesgo -->
-          <select
+          <USelectMenu
             v-model="filtroRiesgo"
-            class="px-2.5 py-1.5 rounded-lg border border-neutral-300 bg-white text-xs font-medium focus:outline-none focus:ring-1 focus:ring-neutral-900"
-            @change="aplicarFiltros"
-          >
-            <option value="">Todos los estados</option>
-            <option value="true">En riesgo</option>
-            <option value="false">Sin riesgo</option>
-          </select>
+            :items="opcionesRiesgo"
+            value-key="value"
+            label-key="label"
+            :search-input="false"
+            :ui="{ value: 'text-neutral-900 font-medium', item: 'text-neutral-900 font-medium' }"
+            size="sm"
+            class="w-40"
+            @update:model-value="aplicarFiltros"
+          />
         </div>
       </template>
 
@@ -95,16 +101,6 @@
           Activo
         </UBadge>
       </template>
-
-      <template #acciones-cell="{ row }">
-        <NuxtLink
-          :to="`/admin/clientes/${row.original.id}`"
-          class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors"
-        >
-          <UIcon name="i-lucide-eye" class="size-3.5" />
-          <span>Ver Ficha</span>
-        </NuxtLink>
-      </template>
     </TablaCrud>
   </div>
 </template>
@@ -138,6 +134,22 @@ const filtroNivel = ref((route.query.nivel as string) || '')
 const filtroRiesgo = ref((route.query.riesgo as string) || '')
 const paginaActual = ref(Number(route.query.page) || 1)
 const limitePorPagina = ref(Number(route.query.limit) || filasPantalla.value)
+
+// ------------------------------------------------------------------------------
+// CATÁLOGO DE OPCIONES PARA FILTROS
+// ------------------------------------------------------------------------------
+const opcionesNivel = [
+  { label: 'Todos los niveles', value: '' },
+  { label: 'Bronce', value: 'Bronce' },
+  { label: 'Plata', value: 'Plata' },
+  { label: 'Oro', value: 'Oro' },
+]
+
+const opcionesRiesgo = [
+  { label: 'Todos los estados', value: '' },
+  { label: 'En riesgo', value: 'true' },
+  { label: 'Sin riesgo', value: 'false' },
+]
 
 // Sincronizar el tamaño si la pantalla detecta otro número óptimo
 watch(filasPantalla, (nuevoTam) => {
@@ -221,6 +233,12 @@ function actualizarUrl() {
       riesgo: filtroRiesgo.value || undefined,
     },
   })
+}
+
+function irAFichaCliente(cliente: any) {
+  if (cliente?.id) {
+    navigateTo(`/admin/clientes/${cliente.id}`)
+  }
 }
 
 function obtenerColorNivel(nivel: string): 'warning' | 'neutral' | 'primary' {
