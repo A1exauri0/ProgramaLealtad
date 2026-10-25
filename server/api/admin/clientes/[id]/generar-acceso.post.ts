@@ -89,13 +89,15 @@ export default defineEventHandler(async (event) => {
   }
 
   return {
-    exito: true,
+    ok: true,
     mensaje: `Contraseña temporal generada para ${cliente.nombre}.`,
-    cliente: {
-      id: cliente.id,
+    datos: {
+      clienteId: cliente.id,
       nombre: cliente.nombre,
       correo: cliente.correo,
+      passwordTemporal,
+      estadoAcceso: 'activo',
+      urlPortal: '/portal/login',
     },
-    passwordTemporal,
   }
 })

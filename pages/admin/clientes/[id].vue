@@ -286,28 +286,65 @@
             </div>
           </div>
 
-          <div class="space-y-2.5 p-3.5 bg-neutral-50 rounded-xl border border-neutral-200">
+          <div class="space-y-3 p-3.5 bg-neutral-50 rounded-xl border border-neutral-200">
+            <!-- Correo Electrónico con botón de copiado -->
             <div>
               <span class="text-neutral-400 block font-medium">Correo Electrónico (Usuario)</span>
-              <span class="font-bold text-neutral-900 font-mono text-xs">{{ credencialesGeneradas.correo }}</span>
+              <div class="flex items-center justify-between gap-2 mt-0.5">
+                <span class="font-bold text-neutral-900 font-mono text-xs select-all">{{ credencialesGeneradas.correo }}</span>
+                <UButton
+                  color="neutral"
+                  variant="ghost"
+                  size="xs"
+                  :icon="copiadoCorreo ? 'i-lucide-check' : 'i-lucide-copy'"
+                  title="Copiar correo"
+                  @click="copiarSoloCorreo"
+                >
+                  {{ copiadoCorreo ? '¡Copiado!' : 'Copiar correo' }}
+                </UButton>
+              </div>
             </div>
-            <div>
-              <span class="text-neutral-400 block font-medium">Contraseña Temporal Generada</span>
+
+            <!-- Contraseña Temporal con botón de copiado exclusivo -->
+            <div class="pt-2 border-t border-neutral-200">
+              <span class="text-neutral-400 block font-medium">Contraseña Temporal</span>
               <div class="flex items-center justify-between gap-2 mt-1">
-                <span class="font-bold text-neutral-900 font-mono text-sm tracking-wider bg-white px-3 py-1.5 rounded-lg border border-neutral-200 select-all flex-1">
+                <span class="font-extrabold text-neutral-900 font-mono text-sm tracking-wider bg-white px-3 py-1.5 rounded-lg border border-neutral-200 select-all flex-1 text-center">
                   {{ credencialesGeneradas.passwordTemporal }}
                 </span>
                 <UButton
                   color="neutral"
-                  variant="outline"
+                  variant="solid"
                   size="xs"
-                  :icon="copiado ? 'i-lucide-check' : 'i-lucide-copy'"
-                  @click="copiarCredenciales"
+                  :icon="copiadoPassword ? 'i-lucide-check' : 'i-lucide-copy'"
+                  @click="copiarSoloPassword"
                 >
-                  {{ copiado ? '¡Copiado!' : 'Copiar' }}
+                  {{ copiadoPassword ? '¡Copiada!' : 'Copiar clave' }}
                 </UButton>
               </div>
             </div>
+          </div>
+
+          <!-- Opciones Adicionales de Copiado y Acceso -->
+          <div class="flex items-center justify-between gap-2 pt-1 text-xs">
+            <UButton
+              color="neutral"
+              variant="outline"
+              size="xs"
+              icon="i-lucide-clipboard-list"
+              @click="copiarCredencialesCompletas"
+            >
+              {{ copiadoTodo ? '¡Formato copiado!' : 'Copiar formato completo' }}
+            </UButton>
+
+            <a
+              href="/portal/login"
+              target="_blank"
+              class="text-xs font-semibold text-primary-600 hover:text-primary-700 inline-flex items-center gap-1"
+            >
+              <span>Abrir portal</span>
+              <UIcon name="i-lucide-external-link" class="size-3" />
+            </a>
           </div>
         </div>
 
@@ -355,7 +392,6 @@ const credencialesGeneradas = ref<{
   urlPortal: string
 } | null>(null)
 const mostrarModalAcceso = ref(false)
-const copiado = ref(false)
 
 // ------------------------------------------------------------------------------
 // CARGA DE DATOS DE LA FICHA
@@ -395,7 +431,13 @@ async function solicitarAccesoPortal() {
       method: 'POST',
     })
 
-    credencialesGeneradas.value = respuesta.datos
+    credencialesGeneradas.value = respuesta.datos || {
+      clienteId: Number(clienteId),
+      correo: (respuesta as any).cliente?.correo || detalleCliente.value?.cliente?.correo || '',
+      passwordTemporal: (respuesta as any).passwordTemporal || '',
+      estadoAcceso: 'activo',
+      urlPortal: '/portal/login',
+    }
     mostrarModalAcceso.value = true
     await refrescarCliente()
 
@@ -415,26 +457,89 @@ async function solicitarAccesoPortal() {
   }
 }
 
-async function copiarCredenciales() {
-  if (!credencialesGeneradas.value) return
-  const texto = `Portal de Clientes:\nURL: ${credencialesGeneradas.value.urlPortal}\nUsuario: ${credencialesGeneradas.value.correo}\nContraseña Temporal: ${credencialesGeneradas.value.passwordTemporal}\n\n*Nota: Se te solicitará crear una nueva contraseña en tu primer inicio de sesión.*`
+// Estados de copia individual
+const copiadoPassword = ref(false)
+const copiadoCorreo = ref(false)
+const copiadoTodo = ref(false)
 
+// ------------------------------------------------------------------------------
+// UTILIDAD INFALIBLE DE COPIADO AL PORTAPAPELES
+// ------------------------------------------------------------------------------
+async function copiarTextoSeguro(texto: string): Promise<boolean> {
+  // Intentar API moderna de portapapeles
   try {
-    await navigator.clipboard.writeText(texto)
-    copiado.value = true
-    setTimeout(() => {
-      copiado.value = false
-    }, 2500)
+    if (navigator?.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(texto)
+      return true
+    }
+  } catch {
+    // Si falla o no está en contexto seguro, usar fallback
+  }
+
+  // Fallback universal con elemento textarea invisible
+  try {
+    const areaTexto = document.createElement('textarea')
+    areaTexto.value = texto
+    areaTexto.style.position = 'fixed'
+    areaTexto.style.left = '-9999px'
+    areaTexto.style.top = '-9999px'
+    document.body.appendChild(areaTexto)
+    areaTexto.focus()
+    areaTexto.select()
+    const exito = document.execCommand('copy')
+    document.body.removeChild(areaTexto)
+    return exito
+  } catch {
+    return false
+  }
+}
+
+async function copiarSoloPassword() {
+  if (!credencialesGeneradas.value?.passwordTemporal) return
+  const exito = await copiarTextoSeguro(credencialesGeneradas.value.passwordTemporal)
+  if (exito) {
+    copiadoPassword.value = true
+    setTimeout(() => { copiadoPassword.value = false }, 2500)
     toast.add({
-      title: 'Copiado al portapapeles',
-      description: 'Las credenciales están listas para ser enviadas al cliente.',
+      title: 'Contraseña copiada',
+      description: 'Pega la contraseña directamente en el campo de clave.',
       color: 'success',
     })
-  } catch {
+  } else {
     toast.add({
       title: 'Error al copiar',
-      description: 'Por favor copia el texto manualmente.',
+      description: 'Por favor selecciona la contraseña manualmente.',
       color: 'warning',
+    })
+  }
+}
+
+async function copiarSoloCorreo() {
+  if (!credencialesGeneradas.value?.correo) return
+  const exito = await copiarTextoSeguro(credencialesGeneradas.value.correo)
+  if (exito) {
+    copiadoCorreo.value = true
+    setTimeout(() => { copiadoCorreo.value = false }, 2500)
+    toast.add({
+      title: 'Correo copiado',
+      description: 'El correo electrónico fue copiado al portapapeles.',
+      color: 'success',
+    })
+  }
+}
+
+async function copiarCredencialesCompletas() {
+  if (!credencialesGeneradas.value) return
+  const texto = `Portal de Clientes:\nURL: http://localhost:3000${credencialesGeneradas.value.urlPortal}\nUsuario: ${credencialesGeneradas.value.correo}\nContraseña Temporal: ${credencialesGeneradas.value.passwordTemporal}\n\n*Nota: Se te solicitará crear una nueva contraseña en tu primer inicio de sesión.*`
+
+  const exito = await copiarTextoSeguro(texto)
+  if (exito) {
+    copiadoTodo.value = true
+    setTimeout(() => { copiadoTodo.value = false }, 2500)
+    toast.add({
+      title: 'Ficha completa copiada',
+      description: 'Texto listo para enviar al cliente por correo o mensaje.',
+      color: 'success',
     })
   }
 }
