@@ -103,6 +103,7 @@ const categorias: CategoriaSidebar[] = [
       { etiqueta: 'Clientes', ruta: '/admin/clientes', icono: 'i-lucide-users', permiso: 'buscar_cliente_detalle' },
       { etiqueta: 'En Riesgo', ruta: '/admin/riesgo', icono: 'i-lucide-triangle-alert', permiso: 'ver_listas_riesgo_cumpleanos' },
       { etiqueta: 'Cumpleaños', ruta: '/admin/cumpleanios', icono: 'i-lucide-cake', permiso: 'ver_listas_riesgo_cumpleanos' },
+      { etiqueta: 'Recompensas', ruta: '/admin/recompensas', icono: 'i-lucide-gift', permiso: 'gestionar_catalogo_recompensas' },
     ],
   },
   {

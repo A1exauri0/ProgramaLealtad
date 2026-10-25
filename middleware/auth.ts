@@ -14,6 +14,7 @@ const PERMISOS_POR_RUTA: Record<string, string> = {
   '/admin/clientes': 'buscar_cliente_detalle',
   '/admin/riesgo': 'ver_listas_riesgo_cumpleanos',
   '/admin/cumpleanios': 'ver_listas_riesgo_cumpleanos',
+  '/admin/recompensas': 'gestionar_catalogo_recompensas',
 }
 
 export default defineNuxtRouteMiddleware(async (to) => {
