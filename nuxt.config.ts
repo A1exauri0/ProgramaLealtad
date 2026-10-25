@@ -10,6 +10,12 @@ export default defineNuxtConfig({
   // Herramientas de desarrollo
   devtools: { enabled: true },
 
+  // Módulos oficiales
+  modules: ['@nuxt/ui'],
+
+  // Estilos globales (Tailwind CSS v4 + Nuxt UI)
+  css: ['~/assets/css/main.css'],
+
   // Configuración del motor de servidor Nitro
   nitro: {
     // Preset oficial para despliegue serverless en Vercel ($0 costo)

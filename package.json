@@ -7,11 +7,35 @@
     "dev": "nuxt dev",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx database/migrar.ts",
+    "db:push": "drizzle-kit push",
+    "db:seed": "tsx database/sembrar.ts",
+    "db:sync": "tsx database/sincronizar.ts",
+    "db:studio": "drizzle-kit studio",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "drizzle-orm": "^0.45.4",
+    "jose": "^6.2.13",
     "nuxt": "^4.6.2",
+    "postgres": "^3.4.9",
     "vue": "^3.5.44",
     "vue-router": "^5.4.0"
+  },
+  "devDependencies": {
+    "@nuxt/ui": "^4.12.0",
+    "@types/bcryptjs": "^3.0.0",
+    "@types/node": "^26.6.5",
+    "@typescript-eslint/parser": "^8.72.0",
+    "dotenv": "^18.0.9",
+    "drizzle-kit": "^0.31.11",
+    "eslint": "^10.13.0",
+    "eslint-plugin-vue": "^10.11.1",
+    "tsx": "^4.23.15",
+    "vue-eslint-parser": "^10.4.1"
   }
 }
