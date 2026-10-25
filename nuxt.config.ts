@@ -2,6 +2,8 @@
 // Configuración Principal de Nuxt 3 (Programa de Lealtad)
 // ==============================================================================
 
+import { defineNuxtConfig } from "nuxt/config";
+
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   // Fecha de compatibilidad de Nuxt
@@ -15,6 +17,12 @@ export default defineNuxtConfig({
 
   // Estilos globales (Tailwind CSS v4 + Nuxt UI)
   css: ['~/assets/css/main.css'],
+
+  // Tema claro fijo (blanco y negro)
+  colorMode: {
+    preference: 'light',
+    fallback: 'light',
+  },
 
   // Configuración del motor de servidor Nitro
   nitro: {

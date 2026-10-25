@@ -4,3 +4,39 @@
 
 @import "tailwindcss";
 @import "@nuxt/ui";
+
+/* ------------------------------------------------------------------------------
+   TIPOGRAFÍA (Poppins se descarga automáticamente vía @nuxt/fonts de Nuxt UI)
+   ------------------------------------------------------------------------------ */
+@theme {
+  --font-sans: 'Poppins', ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ------------------------------------------------------------------------------
+   TEMA BLANCO Y NEGRO
+   ------------------------------------------------------------------------------ */
+:root {
+  --ui-primary: var(--ui-color-neutral-900);
+  --ui-bg: #ffffff;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #ffffff;
+  color: #171717; /* neutral-900 */
+}
+
+/* ------------------------------------------------------------------------------
+   ENCABEZADOS Y CELDAS DE TABLAS (Asegura texto oscuro y nítido)
+   ------------------------------------------------------------------------------ */
+table th,
+[data-slot="th"],
+thead tr th {
+  color: #171717 !important;
+  font-weight: 600 !important;
+}
+
+table td,
+[data-slot="td"] {
+  color: #262626 !important;
+}

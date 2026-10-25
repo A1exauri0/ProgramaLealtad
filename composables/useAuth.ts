@@ -89,6 +89,7 @@ export const useAuth = () => {
   }
 
   return {
+    usuario: usuarioActual,
     usuarioActual,
     estaAutenticado,
     cargando,
@@ -96,6 +97,7 @@ export const useAuth = () => {
     obtenerPerfil,
     iniciarSesion,
     cerrarSesion,
+    logout: cerrarSesion,
     tienePermiso,
   }
 }
