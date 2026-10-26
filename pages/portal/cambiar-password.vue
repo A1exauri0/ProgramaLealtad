@@ -1,17 +1,27 @@
 <template>
-  <div class="min-h-screen bg-neutral-100 flex items-center justify-center p-4">
-    <div class="max-w-md w-full bg-white rounded-3xl p-8 border border-neutral-200 shadow-xl space-y-6">
-      <!-- Encabezado -->
-      <div class="text-center space-y-2">
-        <div class="inline-flex size-12 rounded-2xl bg-amber-50 text-amber-700 items-center justify-center font-bold text-lg mb-2 border border-amber-200">
-          <UIcon name="i-lucide-shield-alert" class="size-6" />
+  <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-neutral-100 via-neutral-50 to-neutral-200 p-4 relative overflow-hidden">
+    <!-- Círculos decorativos de fondo -->
+    <div class="absolute -top-32 -left-32 size-96 bg-amber-100/40 rounded-full blur-3xl pointer-events-none" />
+    <div class="absolute -bottom-32 -right-32 size-96 bg-neutral-200/50 rounded-full blur-3xl pointer-events-none" />
+
+    <div class="max-w-md w-full bg-white/95 backdrop-blur-md rounded-3xl p-8 border border-neutral-200/80 shadow-2xl shadow-neutral-900/10 space-y-6 relative z-10">
+      <!-- Encabezado con Logo y Badge de Seguridad -->
+      <div class="text-center space-y-3">
+        <div class="flex justify-center">
+          <LogoTienda tamanio="xl" />
         </div>
-        <h1 class="text-2xl font-extrabold tracking-tight text-neutral-900">
-          Actualiza tu Contraseña
-        </h1>
-        <p class="text-xs text-neutral-500">
-          Has ingresado con una contraseña temporal. Por seguridad de tu cuenta, define una contraseña personal definitiva.
-        </p>
+        <div>
+          <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-800 border border-amber-200">
+            <UIcon name="i-lucide-shield-alert" class="size-3 text-amber-600" />
+            Primer Ingreso · Seguridad Requerida
+          </span>
+          <h1 class="text-2xl font-black tracking-tight text-neutral-900 mt-2">
+            Actualiza tu Contraseña
+          </h1>
+          <p class="text-xs text-neutral-500 mt-1">
+            Has ingresado con una clave temporal. Define una contraseña definitiva para proteger tu saldo de puntos.
+          </p>
+        </div>
       </div>
 
       <!-- Alerta de Error -->

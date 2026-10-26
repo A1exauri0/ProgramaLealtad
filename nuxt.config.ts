@@ -12,6 +12,19 @@ export default defineNuxtConfig({
   // Herramientas de desarrollo
   devtools: { enabled: true },
 
+  // Metadatos globales y Favicon de la pestaña del navegador
+  app: {
+    head: {
+      title: 'Club de Fidelidad · Tienda en Línea',
+      meta: [
+        { name: 'description', content: 'Programa de Lealtad, Recompensas y Cupones de la Tienda en Línea' },
+      ],
+      link: [
+        { rel: 'icon', type: 'image/png', href: '/favicon.png' },
+      ],
+    },
+  },
+
   // Módulos oficiales
   modules: ['@nuxt/ui'],
 

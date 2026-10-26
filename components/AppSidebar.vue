@@ -6,9 +6,7 @@
     <!-- Cabecera de Marca del Sidebar -->
     <div class="h-16 flex items-center justify-between px-6 border-b border-neutral-200">
       <NuxtLink to="/" class="flex items-center space-x-3" @click="$emit('cerrar')">
-        <div class="w-9 h-9 rounded-xl bg-neutral-900 flex items-center justify-center text-white font-semibold">
-          PL
-        </div>
+        <LogoTienda tamanio="sm" />
         <div>
           <span class="font-semibold text-base tracking-tight block leading-none text-neutral-900">Fidelidad</span>
           <span class="text-[11px] text-neutral-500">Tienda en Línea</span>

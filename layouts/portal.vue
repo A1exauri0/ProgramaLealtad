@@ -5,9 +5,7 @@
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         <!-- Logotipo y Nombre del Portal -->
         <NuxtLink to="/portal" class="flex items-center space-x-3 group">
-          <div class="w-9 h-9 rounded-xl bg-neutral-900 text-white flex items-center justify-center font-bold text-sm tracking-tight shadow-xs">
-            PL
-          </div>
+          <LogoTienda tamanio="sm" />
           <div>
             <div class="font-bold text-sm leading-tight text-neutral-900 group-hover:text-neutral-700 transition-colors">
               Club de Fidelidad
