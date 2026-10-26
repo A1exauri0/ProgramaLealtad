@@ -31,14 +31,15 @@ export default defineEventHandler(async (event) => {
     .where(eq(clientes.enRiesgo, true))
     .orderBy(desc(clientes.diasSinActividad), asc(clientes.id))
 
-  // 3. Mapear al formato exacto requerido por la evaluación
+  // 3. Mapear al formato exacto requerido por la Sección 6 de la evaluación
   return clientesEnRiesgo.map((c) => ({
+    cliente_id: c.id,
+    dias_sin_actividad: c.diasSinActividad,
     id: c.id,
     nombre: c.nombre,
     correo: c.correo,
     telefono: c.telefono,
     nivel: c.nivel,
     puntos_disponibles: c.puntosDisponibles,
-    dias_sin_actividad: c.diasSinActividad,
   }))
 })

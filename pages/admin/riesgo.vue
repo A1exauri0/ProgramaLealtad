@@ -79,15 +79,88 @@
       </template>
 
       <template #acciones-cell="{ row }">
-        <NuxtLink
-          :to="`/admin/clientes/${row.original.id}`"
-          class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors"
-        >
-          <UIcon name="i-lucide-eye" class="size-3.5" />
-          <span>Ver Ficha</span>
-        </NuxtLink>
+        <div class="flex items-center gap-2">
+          <UButton
+            color="neutral"
+            variant="outline"
+            size="xs"
+            icon="i-lucide-message-square-Code"
+            @click="abrirMensajeModal(row.original)"
+          >
+            Mensaje Sugerido
+          </UButton>
+          <NuxtLink
+            :to="`/admin/clientes/${row.original.id}`"
+            class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors"
+          >
+            <UIcon name="i-lucide-eye" class="size-3.5" />
+            <span>Ver Ficha</span>
+          </NuxtLink>
+        </div>
       </template>
     </TablaCrud>
+
+    <!-- Modal de Mensaje Sugerido con Cupón para Cliente en Riesgo (MensajeRiesgoModal) -->
+    <UModal
+      v-model:open="mostrarMensajeModal"
+      title="Mensaje Sugerido de Reactivación"
+      description="Plantilla personalizada con cupón de reactivación lista para enviar por WhatsApp o Correo."
+    >
+      <template #body>
+        <div v-if="clienteSeleccionado" class="space-y-4">
+          <div class="p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-1">
+            <div class="font-bold flex items-center gap-1.5">
+              <UIcon name="i-lucide-sparkles" class="size-4 text-amber-600" />
+              <span>Cliente: {{ clienteSeleccionado.nombre }} ({{ clienteSeleccionado.dias_sin_actividad }} días sin compras)</span>
+            </div>
+            <div>
+              Cupón sugerido: <span class="font-mono font-bold bg-white px-1.5 py-0.5 rounded border border-amber-300">{{ codigoCuponRiesgo }}</span> (15% de descuento en su siguiente pedido)
+            </div>
+          </div>
+
+          <UFormField label="Mensaje personalizado">
+            <UTextarea
+              v-model="textoMensajeSugerido"
+              :rows="5"
+              class="w-full font-sans text-xs"
+            />
+          </UFormField>
+
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-neutral-200">
+            <UButton
+              color="neutral"
+              variant="outline"
+              size="sm"
+              icon="i-lucide-copy"
+              @click="copiarMensaje"
+            >
+              Copiar Texto
+            </UButton>
+
+            <div class="flex items-center gap-2">
+              <a
+                v-if="clienteSeleccionado.correo"
+                :href="enlaceCorreo"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-neutral-100 text-neutral-800 hover:bg-neutral-200 transition-colors"
+              >
+                <UIcon name="i-lucide-mail" class="size-4" />
+                <span>Abrir Correo</span>
+              </a>
+              <a
+                v-if="enlaceWhatsApp"
+                :href="enlaceWhatsApp"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+              >
+                <UIcon name="i-lucide-send" class="size-4" />
+                <span>Enviar por WhatsApp</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>
 
@@ -108,12 +181,52 @@ definePageMeta({
 // ------------------------------------------------------------------------------
 // COMPOSABLES, ESTADO Y PAGINACIÓN ADAPTADA A PANTALLA
 // ------------------------------------------------------------------------------
+const toast = useToast()
 const { tienePermiso } = useAuth()
 const puedeExportarCsv = computed(() => tienePermiso('exportar_reportes_csv'))
 
 const terminoBusqueda = ref('')
 const paginaActual = ref(1)
 const { tamanioPagina } = usePaginacionPantalla({ margenOffset: 340 })
+
+// Estado del Modal de Mensaje Sugerido (MensajeRiesgoModal)
+const mostrarMensajeModal = ref(false)
+const clienteSeleccionado = ref<any>(null)
+const textoMensajeSugerido = ref('')
+const codigoCuponRiesgo = computed(() => {
+  if (!clienteSeleccionado.value) return 'REGRESA-15'
+  return `REGRESA15-C${clienteSeleccionado.value.id}`
+})
+
+function abrirMensajeModal(cliente: any) {
+  clienteSeleccionado.value = cliente
+  const puntosStr = formatearEntero(cliente.puntos_disponibles)
+  textoMensajeSugerido.value = `¡Hola ${cliente.nombre}! 👋 Te extrañamos en nuestra tienda. Notamos que llevas ${cliente.dias_sin_actividad} días sin visitarnos y queremos recordarte que aún tienes ${puntosStr} puntos disponibles en tu cuenta de lealtad (Nivel ${cliente.nivel}). 🎁 Usa el cupón especial ${codigoCuponRiesgo.value} para obtener un 15% de descuento adicional en tu próxima compra o entra a tu portal para canjear tus puntos.`
+  mostrarMensajeModal.value = true
+}
+
+const enlaceWhatsApp = computed(() => {
+  if (!clienteSeleccionado.value?.telefono) return ''
+  const digitos = String(clienteSeleccionado.value.telefono).replace(/\D/g, '')
+  if (!digitos) return ''
+  return `https://wa.me/${digitos}?text=${encodeURIComponent(textoMensajeSugerido.value)}`
+})
+
+const enlaceCorreo = computed(() => {
+  if (!clienteSeleccionado.value?.correo) return ''
+  const asunto = encodeURIComponent(`¡Te extrañamos, ${clienteSeleccionado.value.nombre}! Aquí tienes un cupón de 15% + tus puntos de lealtad`)
+  const cuerpo = encodeURIComponent(textoMensajeSugerido.value)
+  return `mailto:${clienteSeleccionado.value.correo}?subject=${asunto}&body=${cuerpo}`
+})
+
+async function copiarMensaje() {
+  try {
+    await navigator.clipboard.writeText(textoMensajeSugerido.value)
+    toast.add({ title: 'Mensaje copiado', description: 'El mensaje sugerido se copió al portapapeles.', color: 'success' })
+  } catch {
+    toast.add({ title: 'Error', description: 'No se pudo copiar automáticamente.', color: 'error' })
+  }
+}
 
 // ------------------------------------------------------------------------------
 // CARGA DE CLIENTES EN RIESGO

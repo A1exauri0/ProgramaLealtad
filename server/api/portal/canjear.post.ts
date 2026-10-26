@@ -1,6 +1,7 @@
 // ==============================================================================
 // Endpoint API · Canjear Recompensa desde el Portal (POST /api/portal/canjear)
-// Valida saldo, nivel y stock; descuenta puntos y genera canje y cupón atómicamente
+// Transacción Todo o Nada con bloqueo pesimista SELECT ... FOR UPDATE
+// Previene condiciones de carrera cuando 2 clientes canjean la última unidad
 // ==============================================================================
 
 import crypto from 'node:crypto'
@@ -17,6 +18,21 @@ const JERARQUIA_NIVELES: Record<string, number> = {
   Oro: 3,
 }
 
+/**
+ * Genera un código alfanumérico único con formato LEAL-XXXX-XXXX
+ */
+function generarCodigoCuponUnico(): string {
+  const caracteres = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  const bytes = crypto.randomBytes(8)
+  let bloque1 = ''
+  let bloque2 = ''
+  for (let i = 0; i < 4; i++) {
+    bloque1 += caracteres[bytes[i]! % caracteres.length]
+    bloque2 += caracteres[bytes[i + 4]! % caracteres.length]
+  }
+  return `LEAL-${bloque1}-${bloque2}`
+}
+
 export default defineEventHandler(async (event) => {
   const sesion = await exigirSesionPortal(event)
   const body = await readBody(event)
@@ -26,58 +42,75 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'ID de recompensa inválido.' })
   }
 
-  // 1. Obtener datos actuales del cliente
-  const [cliente] = await db
-    .select()
-    .from(clientes)
-    .where(eq(clientes.id, sesion.clienteId))
-    .limit(1)
-
-  if (!cliente) {
-    throw createError({ statusCode: 404, statusMessage: 'Cliente no encontrado.' })
-  }
-
-  // 2. Obtener la recompensa solicitada
-  const [recompensa] = await db
-    .select()
-    .from(recompensas)
-    .where(eq(recompensas.id, recompensaId))
-    .limit(1)
-
-  if (!recompensa || !recompensa.activo) {
-    throw createError({ statusCode: 400, statusMessage: 'La recompensa no está disponible para canje.' })
-  }
-
-  // 3. Validar disponibilidad de stock
-  if (recompensa.stock !== null && recompensa.stock <= 0) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'Lo sentimos, esta recompensa se encuentra agotada temporalmente.',
-    })
-  }
-
-  // 4. Validar nivel de lealtad requerido
-  const nivelClienteNum = JERARQUIA_NIVELES[cliente.nivel] || 1
-  const nivelMinimoNum = JERARQUIA_NIVELES[recompensa.nivelMinimo] || 1
-  if (nivelClienteNum < nivelMinimoNum) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: `Esta recompensa requiere nivel ${recompensa.nivelMinimo}. Tu nivel actual es ${cliente.nivel}.`,
-    })
-  }
-
-  // 5. Validar saldo de puntos disponibles
-  const puntosDisponibles = cliente.puntosDisponibles || 0
-  if (puntosDisponibles < recompensa.puntosRequeridos) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: `Puntos insuficientes. Requieres ${recompensa.puntosRequeridos} pts y cuentas con ${puntosDisponibles} pts.`,
-    })
-  }
-
-  // 6. Transacción atómica de canje
+  // Ejecutar TODA la validación y descuento dentro de una sola transacción SQL con FOR UPDATE
   const resultadoCanje = await db.transaction(async (tx) => {
-    // A. Descontar puntos al cliente
+    // 1. Bloquear la fila de la recompensa (SELECT ... FOR UPDATE) para serializar canjes simultáneos
+    const [recompensa] = await tx
+      .select()
+      .from(recompensas)
+      .where(eq(recompensas.id, recompensaId))
+      .for('update')
+
+    if (!recompensa || !recompensa.activo) {
+      throw createError({ statusCode: 400, statusMessage: 'La recompensa no está disponible para canje.' })
+    }
+
+    // 2. Validar stock bajo bloqueo exclusivo
+    if (recompensa.stock !== null && recompensa.stock <= 0) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'Lo sentimos, esta recompensa se encuentra agotada (sin stock disponible).',
+      })
+    }
+
+    // 3. Bloquear la fila del cliente (SELECT ... FOR UPDATE) para evitar saldo negativo concurrente
+    const [cliente] = await tx
+      .select()
+      .from(clientes)
+      .where(eq(clientes.id, sesion.clienteId))
+      .for('update')
+
+    if (!cliente) {
+      throw createError({ statusCode: 404, statusMessage: 'Cliente no encontrado.' })
+    }
+
+    // 4. Validar nivel mínimo requerido
+    const nivelClienteNum = JERARQUIA_NIVELES[cliente.nivel] || 1
+    const nivelMinimoNum = JERARQUIA_NIVELES[recompensa.nivelMinimo] || 1
+    if (nivelClienteNum < nivelMinimoNum) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: `Esta recompensa requiere nivel ${recompensa.nivelMinimo}. Tu nivel actual es ${cliente.nivel}.`,
+      })
+    }
+
+    // 5. Validar límite de canjes por cliente (si está definido en la recompensa)
+    if (recompensa.limitePorCliente !== null && recompensa.limitePorCliente !== undefined && recompensa.limitePorCliente > 0) {
+      const [conteoPrevios] = await tx
+        .select({ total: sql<number>`count(*)::int` })
+        .from(canjes)
+        .where(
+          sql`${canjes.clienteId} = ${cliente.id} AND ${canjes.recompensaId} = ${recompensa.id} AND ${canjes.estatus} != 'cancelado'`
+        )
+
+      if ((conteoPrevios?.total || 0) >= recompensa.limitePorCliente) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: `Has alcanzado el límite máximo permitido (${recompensa.limitePorCliente}) para esta recompensa.`,
+        })
+      }
+    }
+
+    // 6. Validar saldo de puntos disponibles
+    const puntosDisponibles = cliente.puntosDisponibles || 0
+    if (puntosDisponibles < recompensa.puntosRequeridos) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: `Puntos insuficientes. Requieres ${recompensa.puntosRequeridos} pts y cuentas con ${puntosDisponibles} pts.`,
+      })
+    }
+
+    // 7. Descontar puntos al cliente
     const [clienteActualizado] = await tx
       .update(clientes)
       .set({
@@ -87,7 +120,7 @@ export default defineEventHandler(async (event) => {
       .where(eq(clientes.id, cliente.id))
       .returning({ puntosRestantes: clientes.puntosDisponibles })
 
-    // B. Si tiene stock finito, decrementar en 1
+    // 8. Si tiene stock finito, decrementar en 1
     if (recompensa.stock !== null) {
       await tx
         .update(recompensas)
@@ -98,7 +131,7 @@ export default defineEventHandler(async (event) => {
         .where(eq(recompensas.id, recompensa.id))
     }
 
-    // C. Crear el registro de canje
+    // 9. Crear el registro de canje
     const estatusInicial = recompensa.tipo === 'descuento' ? 'entregado' : 'pendiente'
     const [nuevoCanje] = await tx
       .insert(canjes)
@@ -112,7 +145,7 @@ export default defineEventHandler(async (event) => {
       })
       .returning()
 
-    // D. Registrar el movimiento en el historial de puntos
+    // 10. Registrar el movimiento negativo 'canje' en el historial de puntos
     const fechaHoy = convertirUtcAUgc6Fecha(new Date().toISOString()) || '2026-04-30'
     await tx
       .insert(movimientosPuntos)
@@ -120,23 +153,23 @@ export default defineEventHandler(async (event) => {
         clienteId: cliente.id,
         fecha: fechaHoy,
         tipo: 'canje',
-        referencia: `canje:${nuevoCanje.id}`,
+        referencia: `canje:${nuevoCanje!.id}`,
         puntos: -recompensa.puntosRequeridos,
         origen: 'canje',
       })
       .onConflictDoNothing()
 
-    // E. Si es cupón de descuento, generar el cupón único
+    // 11. Si es cupón de descuento, generar el cupón único LEAL-XXXX-XXXX
     let cuponGenerado = null
     if (recompensa.tipo === 'descuento') {
-      const codigoAleatorio = `LEAL-${crypto.randomBytes(3).toString('hex').toUpperCase()}`
+      const codigoAleatorio = generarCodigoCuponUnico()
       const diasVigencia = recompensa.vigenciaDias || 30
       const fechaVencimiento = new Date(Date.now() + diasVigencia * 24 * 60 * 60 * 1000)
 
       const [cupon] = await tx
         .insert(cupones)
         .values({
-          canjeId: nuevoCanje.id,
+          canjeId: nuevoCanje!.id,
           clienteId: cliente.id,
           codigo: codigoAleatorio,
           descuentoTipo: recompensa.descuentoTipo || 'porcentaje',
@@ -151,16 +184,17 @@ export default defineEventHandler(async (event) => {
     }
 
     return {
+      tipoRecompensa: recompensa.tipo,
       canje: nuevoCanje,
       cupon: cuponGenerado,
-      puntosRestantes: clienteActualizado.puntosRestantes,
+      puntosRestantes: clienteActualizado?.puntosRestantes ?? 0,
     }
   })
 
   return {
     ok: true,
     mensaje:
-      recompensa.tipo === 'descuento'
+      resultadoCanje.tipoRecompensa === 'descuento'
         ? `¡Canje exitoso! Tu cupón ${resultadoCanje.cupon?.codigo} ha sido generado.`
         : '¡Canje registrado con éxito! El personal de la tienda preparará tu entrega.',
     datos: resultadoCanje,

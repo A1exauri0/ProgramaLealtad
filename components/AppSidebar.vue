@@ -113,6 +113,7 @@ const categorias: CategoriaSidebar[] = [
       { etiqueta: 'Usuarios', ruta: '/admin/usuarios', icono: 'i-lucide-user-cog', permiso: 'gestionar_usuarios' },
       { etiqueta: 'Roles', ruta: '/admin/roles', icono: 'i-lucide-shield-check', permiso: 'gestionar_roles_permisos' },
       { etiqueta: 'Permisos', ruta: '/admin/permisos', icono: 'i-lucide-key-round', permiso: 'gestionar_roles_permisos' },
+      { etiqueta: 'Tokens API', ruta: '/admin/tokens', icono: 'i-lucide-terminal', permiso: 'gestionar_tokens_api' },
     ],
   },
 ]

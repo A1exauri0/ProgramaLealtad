@@ -41,8 +41,10 @@ export default defineEventHandler(async (event) => {
     )
     .orderBy(asc(clientes.fechaCumpleanos), asc(clientes.id))
 
-  // 3. Mapear al formato exacto requerido por la evaluación
+  // 3. Mapear al formato exacto requerido por la Sección 6 de la evaluación
   return cumplenaneros.map((c) => ({
+    cliente_id: c.id,
+    fecha_cumpleanos: c.proximoCumpleanos,
     id: c.id,
     nombre: c.nombre,
     correo: c.correo,

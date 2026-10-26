@@ -6,6 +6,7 @@ Sistema full-stack de alta disponibilidad para la gestión, cálculo y redenció
 
 ## 📌 Tabla de Contenidos
 
+- [¿De qué va el sistema y cuál es su flujo completo?](#-de-qué-va-el-sistema-y-cuál-es-su-flujo-completo)
 - [Características Principales](#-características-principales)
 - [Stack Tecnológico](#-stack-tecnológico)
 - [Arquitectura del Sistema](#-arquitectura-del-sistema)
@@ -15,6 +16,45 @@ Sistema full-stack de alta disponibilidad para la gestión, cálculo y redenció
 - [Endpoints Oficiales de Evaluación](#-endpoints-oficiales-de-evaluación)
 - [Instalación y Puesta en Marcha Local](#-instalación-y-puesta-en-marcha-local)
 - [Preguntas Clave y Justificaciones Arquitectónicas](#-preguntas-clave-y-justificaciones-arquitectónicas)
+
+---
+
+## 📖 ¿De qué va el sistema y cuál es su flujo completo?
+
+Imagina que una **tienda en línea** ya tiene su propio sistema donde registra a sus clientes (`/users`), sus pedidos (`/orders`) y sus cobros (`/payments`), expuestos en la API externa `fakeapi.dev`. La tienda quiere premiar a sus compradores frecuentes lanzando un **Programa de Lealtad**, sin modificar su tienda original.
+
+Este sistema resuelve ese problema en **5 pasos conectados (El Flujo Completo)**:
+
+```mermaid
+flowchart LR
+    P1["1. Sincronización\n(fakeapi.dev -> Supabase)"] --> P2["2. Cálculo de Reglas\n(Corte 2026-04-30)"]
+    P2 --> P3["3. Panel Interno\n(Admin / Gerente / Atención)"]
+    P3 --> P4["4. Portal del Cliente\n(Activación + Canje)"]
+    P2 --> P5["5. API de Evaluación\n(/api/fidelizacion/*)"]
+```
+
+1. **Paso 1 — Ingesta y Sincronización (`fakeapi.dev` $\rightarrow$ Nuestra Base de Datos):**
+   - Una tarea programada diaria (`/api/cron/sincronizar`) o el botón **"Sincronizar fakeapi.dev"** del Administrador descarga todos los clientes, pedidos y pagos desde `fakeapi.dev` usando la API Key secreta en el servidor.
+   - Guarda los datos normalizados en **Supabase PostgreSQL** y crea a cada cliente una cuenta de portal inicialmente en estado `sin_acceso`.
+2. **Paso 2 — Motor de Reglas de Fidelización (Corte fijo al `2026-04-30`):**
+   - Convierte las fechas de UTC a hora del centro de México (`UTC-6`) e ignora todo lo posterior al `2026-04-30`.
+   - Convierte los pagos a pesos mexicanos (`MXN`) y calcula el **historial de movimientos de puntos**:
+     - **+1 punto por cada \$10 MXN** en pagos exitosos (`succeeded`).
+     - Si un pago fue reembolsado (`refunded`), registra los puntos positivos y enseguida un movimiento negativo igual (efecto neto `0`).
+     - **+250 puntos de bono** por cada pedido entregado y pagado (`delivered` + `paid`).
+   - Suma cuánto gastó el cliente en los últimos 12 meses (`2025-05-01` al `2026-04-30`) y le asigna su **Nivel**: **Bronce** (< \$150,000), **Plata** (\$150,000 a \$400,000) u **Oro** (> \$400,000).
+   - Detecta quién está **En Riesgo** (clientes con compras previas que llevan 90 días o más sin actividad al corte) y quién **Cumple Años** en los próximos 7 días (`30 de abril` al `7 de mayo`).
+3. **Paso 3 — Operación del Equipo Interno (`/admin`):**
+   - El personal de la tienda entra en `/login` según su rol (**Administrador**, **Gerente** o **Atención a clientes**).
+   - Consulta el Dashboard, busca clientes, revisa quién está en riesgo o cumple años, administra el catálogo de **Recompensas** (productos físicos con stock o cupones de descuento) y supervisa los **Canjes**.
+   - Si el usuario es de *Atención a clientes*, el backend oculta todos los montos en dinero (`$`).
+4. **Paso 4 — Activación y Autoservicio en el Portal del Cliente (`/portal`):**
+   - Cuando un cliente quiere entrar a su portal, alguien del equipo interno entra a su ficha (`/admin/clientes/[id]`) y presiona **"Generar Acceso"**. El sistema genera una contraseña temporal aleatoria (`Leal-XXXXXX`) que se muestra una sola vez.
+   - El cliente entra en `/portal/login` con su correo y esa clave temporal. En su **primer ingreso**, el sistema lo obliga a elegir una contraseña nueva personal (`/portal/cambiar-password`).
+   - Dentro de `/portal`, el cliente ve **únicamente sus propios datos**: saldo de puntos disponibles, nivel actual, cuánto le falta para subir de nivel, su historial y el catálogo de premios.
+   - Cuando canjea una recompensa (`/api/portal/canjear`), se ejecuta una **transacción Todo o Nada**: se descuentan sus puntos, se resta 1 al stock y se genera un pedido de entrega (`pendiente`) o un código de cupón único (`LEAL-XXXX-XXXX`). Si desde el panel interno se cancela ese canje, el sistema devuelve el stock y regresa los puntos con un movimiento `devolucion`.
+5. **Paso 5 — Validación Automática del Evaluador (`/api/fidelizacion/*`):**
+   - El evaluador externo consume los 3 endpoints públicos (`/clientes/{id}`, `/riesgo`, `/cumpleanos`) enviando un token `Authorization: Bearer <token>` (cuyo hash `SHA-256` vive en la base de datos) para calificar automáticamente que todos los cálculos cuadren con su hoja de respuestas.
 
 ---
 
@@ -245,45 +285,41 @@ erDiagram
 
 ## 🎯 Motor de Fidelización y Reglas de Negocio
 
-El cálculo de lealtad se ejecuta de manera determinista en base a funciones puras auditables:
+El cálculo de lealtad se ejecuta de manera determinista en base a las reglas oficiales de la Sección 4:
 
-1. **Fecha de Corte:**
-   - Se procesan pedidos y pagos efectuados hasta el **30 de abril de 2026 inclusive** (`2026-04-30T23:59:59.999Z`).
+1. **Fecha de Corte y Zona Horaria:**
+   - Fecha de corte fija: **30 de abril de 2026 (`2026-04-30`)**.
+   - Todas las fechas UTC de `fakeapi.dev` se convierten a hora de México (**UTC-6 fijo**, sin horario de verano). Se ignoran pedidos y pagos con fecha local posterior al corte o de clientes que no existan en `/users`.
 
 2. **Conversión a MXN Oficial:**
-   - `1 USD = 20.00 MXN`
-   - `1 EUR = 22.00 MXN`
-   - `1 MXN = 1.00 MXN`
+   - `monto * tipo_cambio` redondeado a 2 decimales (centavos):
+     - `USD = 18.50 MXN` · `EUR = 20.00 MXN` · `GBP = 23.50 MXN` · `CAD = 13.50 MXN` · `AUD = 12.00 MXN`
+   - Pagos en cualquier otra moneda se ignoran y se registran en `inconsistencias_fuente`.
 
-3. **Cálculo de Puntos por Compra:**
-   - Únicamente compras con estado de pago **`paid`** acumulan puntos.
-   - Fórmula: `Puntos Base = floor(monto_mxn / 10)`. (1 punto por cada $10 MXN).
-   - **Bono por Volumen:** Compras de más de $1,000 MXN reciben **+50 puntos adicionales** por transacción.
+3. **Cálculo de Puntos por Pago y Bono por Pedido:**
+   - **Puntos por pago:** `Math.floor(monto_mxn / 10)` (1 punto por cada \$10 MXN) en cada pago con `status = "succeeded"`. Fecha: `paid_at` (o `created_at` si `paid_at` es `null`).
+   - **Reembolsos (`status = "refunded"`):** Genera sus puntos iniciales (`pago`) y después un movimiento negativo por la misma cantidad (`reembolso`, neto 0).
+   - **Bono por pedido:** **+250 puntos** por cada orden con `status = "delivered"` y `payment_status = "paid"`. Fecha: `created_at` del pedido.
 
-4. **Niveles de Cliente (Tiers):**
-   - El nivel se calcula evaluando el total de puntos históricos acumulados:
-     - 🥉 **Bronce:** 0 a 499 puntos acumulados.
-     - 🥈 **Plata:** 500 a 1,499 puntos acumulados.
-     - 🥇 **Oro:** 1,500 puntos o más acumulados.
+4. **Gasto 12 Meses (`gasto_12m`) y Nivel del Cliente:**
+   - Suma en MXN de pagos `succeeded` con fecha local entre `2025-05-01` y `2026-04-30` (mayor a corte − 365 días y hasta el corte inclusive):
+     - 🥉 **Bronce:** Menos de \$150,000 MXN.
+     - 🥈 **Plata:** De \$150,000 a \$400,000 MXN.
+     - 🥇 **Oro:** Más de \$400,000 MXN.
 
-5. **Ventana de Gasto de los Últimos 12 Meses (`gasto_12m`):**
-   - Intervalo móvil: Del **1 de mayo de 2025 al 30 de abril de 2026**.
-   - Solo se contabilizan pagos efectivamente completados (`paid`).
+5. **Detección de Clientes en Riesgo (`en_riesgo`):**
+   - Clientes con al menos un pago `succeeded` y que llevan **90 días o más** sin actividad al corte `2026-04-30` (donde actividad es la fecha del último pago `succeeded` o pedido no `cancelled`).
 
-6. **Detección de Clientes en Riesgo de Abandono (`en_riesgo`):**
-   - Un cliente se cataloga en riesgo (`en_riesgo = true`) si han transcurrido **más de 90 días naturales** desde su última compra hasta la fecha de corte (`2026-04-30`).
+6. **Ventana de Próximos Cumpleaños:**
+   - Clientes cuyo `dob` (primeros 10 caracteres `YYYY-MM-DD`, sin conversión de zona horaria) cae en mes y día entre el **`04-30` y el `05-07`** (corte a corte + 7 días, ambos inclusive).
 
-7. **Ventana de Próximos Cumpleaños:**
-   - Clientes que cumplen años dentro de los siguientes **30 días naturales** posteriores a la fecha de corte (`2026-05-01` al `2026-05-31`).
+7. **Garantía de Idempotencia en Sincronización:**
+   - La tabla `movimientos_puntos` posee una restricción única: `(cliente_id, tipo, referencia)` donde la referencia sigue el patrón `pago:{id}` u `orden:{id}`.
+   - Ejecutar la sincronización múltiples veces jamás duplica puntos ni altera canjes existentes de clientes (`origen = canje`).
 
-8. **Garantía de Idempotencia en Sincronización:**
-   - La tabla `movimientos_puntos` posee una restricción única: `(cliente_id, tipo, referencia)` donde la referencia sigue el patrón `pago:{id}`.
-   - Ejecutar la sincronización múltiples veces jamás duplica puntos ni afecta canjes existentes de clientes (`tipo = canje`).
-
-9. **Canje Concurrente y Atómico de Recompensas:**
-   - Al solicitar un canje, se abre una transacción en PostgreSQL con bloqueo pesimista `SELECT ... FOR UPDATE` sobre la fila de la recompensa.
-   - Se verifica que el stock sea mayor a 0 y que `puntos_disponibles >= puntos_requeridos`.
-   - Se decrementa el stock, se inserta el movimiento negativo en `movimientos_puntos`, se descuentan los puntos del cliente y se genera el cupón en la misma unidad atómica. Si dos clientes intentan canjear la última unidad al mismo milisegundo, uno triunfa y el segundo recibe error 400 sin inconsistencias.
+8. **Canje Concurrente y Atómico de Recompensas (Todo o Nada):**
+   - Al solicitar un canje, se ejecuta una transacción en PostgreSQL con bloqueo de fila (`SELECT ... FOR UPDATE`), validando que la recompensa esté activa, exista stock, cumpla el nivel mínimo, no exceda el límite por cliente y tenga puntos disponibles suficientes.
+   - Al cancelar un canje desde el panel, se devuelve el stock y se registra un movimiento positivo `devolucion`.
 
 ---
 
@@ -291,71 +327,158 @@ El cálculo de lealtad se ejecuta de manera determinista en base a funciones pur
 
 El sistema implementa dos canales de autenticación estrictamente aislados:
 
-1. **Sesión del Panel Administrativo:** Cookie `sesion_usuario` (`httpOnly`, `SameSite=Lax`, `Secure` en producción) que almacena el JWT con `usuarioId` y `rolId`.
+1. **Sesión del Panel Administrativo:** Cookie `sesion_lealtad_token` (`httpOnly`, `SameSite=Lax`, `Secure` en producción) que almacena el JWT con `usuarioId` y `rolId`.
 2. **Sesión del Portal del Cliente:** Cookie `sesion_portal_cliente` (`httpOnly`, `SameSite=Lax`) que almacena el JWT con `clienteId` y `correo`.
 
-### Matriz de Permisos por Rol
+### Matriz Oficial de los 12 Permisos por Rol
 
 | Permiso Clave | Descripción | Administrador | Gerente | Atención a clientes |
 |---|---|:---:|:---:|:---:|
-| `dashboard:ver` | Ver métricas y distribución de niveles | ✅ | ✅ | ✅ |
-| `clientes:listar` | Consultar catálogo y búsqueda de clientes | ✅ | ✅ | ✅ |
-| `clientes:detalle` | Ver ficha individual del cliente | ✅ | ✅ | ✅ |
-| `clientes:financiero` | Ver montos de gasto en dinero real (MXN) | ✅ | ✅ | ❌ |
-| `clientes:acceso` | Generar y resetear claves temporales | ✅ | ✅ | ❌ |
-| `recompensas:listar` | Consultar catálogo de recompensas | ✅ | ✅ | ✅ |
-| `recompensas:gestionar` | Crear, editar y cambiar stock de recompensas | ✅ | ✅ | ❌ |
-| `canjes:gestionar` | Marcar canjes como entregados o cancelados | ✅ | ✅ | ✅ |
-| `reportes:exportar` | Descargar reportes de riesgo y cumpleaños en CSV | ✅ | ✅ | ❌ |
-| `sincronizacion:ejecutar` | Disparar sincronización manual con fakeapi | ✅ | ❌ | ❌ |
-| `seguridad:usuarios` | Administrar usuarios y credenciales del equipo | ✅ | ❌ | ❌ |
-| `seguridad:roles` | Crear y editar roles y asignación de permisos | ✅ | ❌ | ❌ |
+| `ver_resumen_panel` | Ver resumen del panel | ✅ | ✅ | ✅ |
+| `buscar_cliente_detalle` | Buscar cliente y ver puntos, nivel e historial | ✅ | ✅ | ✅ |
+| `ver_montos_financieros` | Ver montos (gasto en MXN, pedidos y pagos) | ✅ | ✅ | ❌ |
+| `ver_listas_riesgo_cumpleanos` | Ver listas de riesgo y cumpleaños | ✅ | ✅ | ✅ |
+| `exportar_reportes_csv` | Exportar reportes (CSV) | ✅ | ✅ | ❌ |
+| `gestionar_catalogo_recompensas` | Gestionar catálogo de recompensas | ✅ | ✅ | ❌ |
+| `gestionar_canjes` | Gestionar canjes (entregar, aplicar cupón, cancelar) | ✅ | ✅ | ✅ |
+| `generar_acceso_portal_cliente` | Generar o restablecer acceso al portal de un cliente | ✅ | ✅ | ✅ |
+| `ejecutar_sincronizacion` | Ejecutar sincronización | ✅ | ❌ | ❌ |
+| `gestionar_usuarios` | Gestionar usuarios | ✅ | ❌ | ❌ |
+| `gestionar_roles_permisos` | Gestionar roles y permisos | ✅ | ❌ | ❌ |
+| `gestionar_tokens_api` | Gestionar tokens de API | ✅ | ❌ | ❌ |
 
 ---
 
-## 📡 Endpoints Oficiales de Evaluación
+## 📡 Endpoints Oficiales de Evaluación (Sección 6)
 
-Todos los endpoints oficiales de evaluación soportan solicitudes con encabezado `Authorization: Bearer <TOKEN>` y responden con los encabezados de CORS habilitados (`Access-Control-Allow-Origin: *`, `OPTIONS`).
+Todos los endpoints oficiales de evaluación exigen el encabezado `Authorization: Bearer <TOKEN>` (validado por hash SHA-256 contra la tabla `tokens_api`) y responden con CORS habilitado (`Access-Control-Allow-Origin: *`, `OPTIONS`).
 
 ### 1. Ficha del Cliente
 ```http
 GET /api/fidelizacion/clientes/{id}
 Authorization: Bearer <TOKEN_API>
 ```
-**Respuesta:**
+**Respuesta JSON exacta:**
 ```json
 {
-  "id": 1,
-  "nombre": "Lauryn Schowalter",
-  "correo": "samanta.gleichner@example.com",
-  "telefono": "870-761-0428",
-  "puntos": 487,
-  "puntosDisponibles": 487,
-  "nivel": "Bronce",
-  "gasto12m": 3870.00,
-  "enRiesgo": false,
-  "diasSinActividad": 12,
-  "fechaCumpleanos": "1992-05-14"
+  "cliente_id": 42,
+  "nombre": "Ana García",
+  "correo": "ana@ejemplo.com",
+  "puntos": 12450,
+  "puntos_disponibles": 11950,
+  "nivel": "Plata",
+  "gasto_12m": 185420.5,
+  "en_riesgo": false,
+  "dias_sin_actividad": 12,
+  "movimientos": [
+    { "tipo": "pago", "referencia": "pay_101", "puntos": 1200, "fecha": "2026-04-18" },
+    { "tipo": "bono_pedido", "referencia": "ord_55", "puntos": 250, "fecha": "2026-04-18" },
+    { "tipo": "canje", "referencia": "canje_8", "puntos": -500, "fecha": "2026-04-20" }
+  ]
 }
 ```
 
-### 2. Clientes en Riesgo de Abandono
+### 2. Clientes en Riesgo de Abandono (≥ 90 días sin actividad al 2026-04-30)
 ```http
-GET /api/fidelizacion/riesgo?limite=10&pagina=1
+GET /api/fidelizacion/riesgo
 Authorization: Bearer <TOKEN_API>
 ```
-
-### 3. Próximos Cumpleaños (Ventana 30 Días)
-```http
-GET /api/fidelizacion/cumpleanos?dias=30
-Authorization: Bearer <TOKEN_API>
+**Respuesta JSON exacta:**
+```json
+{
+  "fecha_corte": "2026-04-30",
+  "total": 18,
+  "clientes": [
+    {
+      "cliente_id": 7,
+      "nombre": "...",
+      "correo": "...",
+      "telefono": "...",
+      "puntos_disponibles": 800,
+      "dias_sin_actividad": 134
+    }
+  ]
+}
 ```
 
-### 4. Tarea Cron de Sincronización
+### 3. Próximos Cumpleaños (Ventana de 7 Días: `2026-04-30` al `2026-05-07`)
+```http
+GET /api/fidelizacion/cumpleanos
+Authorization: Bearer <TOKEN_API>
+```
+**Respuesta JSON exacta:**
+```json
+{
+  "fecha_corte": "2026-04-30",
+  "total": 5,
+  "clientes": [
+    {
+      "cliente_id": 19,
+      "nombre": "...",
+      "correo": "...",
+      "telefono": "...",
+      "nivel": "Oro",
+      "fecha_cumpleanos": "2026-05-03"
+    }
+  ]
+}
+```
+
+### 4. Tarea Cron de Sincronización Diaria (Vercel Cron)
 ```http
 GET /api/cron/sincronizar
 Authorization: Bearer <CRON_SECRET>
 ```
+
+---
+
+## 📖 Manual de Uso del Sistema (Guía Paso a Paso)
+
+### A. Panel Administrativo Interno (`/login` y `/admin/*`)
+El equipo interno ingresa por `/login`. Dependiendo del rol asignado (**Administrador**, **Gerente** o **Atención a clientes**), el sistema habilita las pantallas y acciones correspondientes:
+
+1. **Dashboard General (`/`):**
+   - Muestra tarjetas KPI con total de clientes, puntos emitidos, puntos disponibles, clientes en riesgo y cumpleaños próximos.
+   - Presenta la distribución de clientes por nivel (**Bronce**, **Plata**, **Oro**) y el **Top 10 de clientes con más puntos**.
+   - **Sincronización Manual:** Si el usuario tiene el permiso `ejecutar_sincronizacion` (Administrador), verá el botón **"Sincronizar ahora"** para descargar datos de `fakeapi.dev` y recalcular puntos en segundos.
+2. **Directorio y Ficha de Clientes (`/admin/clientes` y `/admin/clientes/[id]`):**
+   - Permite buscar clientes por nombre, correo, teléfono o ID, y filtrar por nivel.
+   - En la ficha individual (`/admin/clientes/[id]`) se consulta su nivel, puntos acumulados, puntos disponibles y su historial de **Movimientos de Puntos**.
+   - **Privacidad financiera (`ver_montos_mxn`):** Los roles **Administrador** y **Gerente** ven el gasto de los últimos 12 meses en MXN y las pestañas de **Pedidos** y **Pagos**; el rol **Atención a clientes** tiene esos montos y pestañas ocultos tanto en interfaz como en el backend.
+   - **Activar Portal del Cliente (`generar_acceso_portal_cliente`):** El botón **"Generar Acceso"** crea o restablece una contraseña temporal (`Leal-XXXXXX`) que se entrega al cliente para que ingrese a su portal.
+3. **Clientes en Riesgo (`/admin/riesgo`):**
+   - Lista a todos los clientes con al menos un pago `succeeded` que llevan **90 días o más sin actividad** al corte (`2026-04-30`).
+   - Incluye el botón **"Mensaje Sugerido"** para abrir una plantilla con cupón de reactivación lista para enviar por **WhatsApp** o **Correo**, y el botón **"Exportar CSV"** (para roles con `exportar_reportes_csv`).
+4. **Próximos Cumpleaños (`/admin/cumpleanios`):**
+   - Lista a los clientes cuyo cumpleaños cae en los próximos **7 días** a partir del corte (del `30 de abril` al `7 de mayo de 2026`).
+   - Incluye el botón **"Felicitar"** con cupón de regalo para WhatsApp/Correo y exportación a **CSV**.
+5. **Catálogo de Recompensas (`/admin/recompensas`):**
+   - Permite crear y editar **Productos físicos** (con control de stock) y **Cupones de descuento** (porcentaje o monto fijo, compra mínima y días de vigencia), definiendo costo en puntos, nivel mínimo requerido (`Bronce`, `Plata`, `Oro`) y **límite de canjes por cliente**.
+   - Permite **subir fotografía** directamente a **Supabase Storage** o usar el botón **"Importar de /products"** para traer productos desde `fakeapi.dev`.
+6. **Gestión de Canjes y Cupones (`/admin/canjes`):**
+   - Muestra todos los canjes realizados por los clientes:
+     - **Entregar:** Marca un producto físico como `entregado`.
+     - **Aplicar Cupón:** Marca un cupón de descuento `vigente` como `usado`.
+     - **Cancelar:** Cancela un canje pendiente o un cupón no utilizado, **devolviendo automáticamente los puntos al cliente** (con movimiento `devolucion`) y restaurando el stock.
+7. **Seguridad: Usuarios (`/admin/usuarios`), Roles (`/admin/roles`), Permisos (`/admin/permisos`) y Tokens API (`/admin/tokens`):**
+   - Exclusivo para **Administrador**. Permite crear/editar/desactivar usuarios (impidiendo desactivar al último Administrador), crear roles personalizados marcando permisos, y generar/revocar **Tokens Bearer** para los endpoints de evaluación.
+
+---
+
+### B. Portal de Autoservicio del Cliente (`/portal/login` y `/portal`)
+1. **Primer Ingreso y Cambio Obligatorio de Contraseña:**
+   - El cliente entra a `/portal/login` con su correo y la contraseña temporal generada por el equipo interno (`Leal-XXXXXX`).
+   - En su primer acceso, el sistema lo redirige obligatoriamente a `/portal/cambiar-password` para que defina su contraseña personal antes de continuar.
+2. **Resumen de Membresía y Notificaciones (`/portal`):**
+   - En la parte superior recibe **notificaciones dentro del portal** (canje registrado, producto entregado o alerta de cupón próximo a vencer).
+   - Visualiza su **Nivel actual** (`Bronce`, `Plata` u `Oro`), sus **Puntos Disponibles** y una barra de progreso indicando cuánto gasto en MXN le falta para subir al siguiente nivel.
+3. **Catálogo y Canje de Puntos (Pestaña *Catálogo de Beneficios*):**
+   - Cada tarjeta indica automáticamente si el cliente puede canjearla o el motivo exacto de bloqueo (*Puntos insuficientes*, *Requiere nivel Plata/Oro*, *Agotado* o *Límite por cliente alcanzado*).
+   - Al confirmar un canje, el sistema bloquea el registro en base de datos (`SELECT ... FOR UPDATE`), descuenta los puntos y registra el beneficio.
+4. **Seguimiento de Canjes, Cupones e Historial:**
+   - **Pestaña *Mis Canjes*:** Permite dar seguimiento al estatus de entrega (`Pendiente de Entrega`, `Entregado` o `Cancelado`).
+   - **Pestaña *Mis Cupones*:** Muestra el código único generado (`LEAL-XXXX-XXXX`), su descuento, compra mínima, fecha de vencimiento y estatus (`vigente`, `usado`, `vencido`).
+   - **Pestaña *Historial de Puntos*:** Muestra todos sus movimientos de puntos ordenados por fecha.
 
 ---
 

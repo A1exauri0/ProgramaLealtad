@@ -39,6 +39,7 @@ export default defineEventHandler(async (event) => {
       nivel: clientes.nivel,
       puntosAcumulados: clientes.puntos,
       puntosDisponibles: clientes.puntosDisponibles,
+      gasto12m: clientes.gasto12m,
       enRiesgo: clientes.enRiesgo,
       diasSinActividad: clientes.diasSinActividad,
     })
@@ -66,8 +67,23 @@ export default defineEventHandler(async (event) => {
     .where(eq(movimientosPuntos.clienteId, clienteId))
     .orderBy(asc(movimientosPuntos.fecha), asc(movimientosPuntos.id))
 
-  // 5. Retornar respuesta con el formato exacto requerido por la prueba
+  // 5. Retornar respuesta con el formato exacto de la Sección 6 (más campos extra permitidos)
+  const gasto12mNumero = Number(Number(cliente.gasto12m || 0).toFixed(2))
+
   return {
+    cliente_id: cliente.id,
+    puntos: cliente.puntosAcumulados,
+    puntos_disponibles: cliente.puntosDisponibles,
+    nivel: cliente.nivel,
+    gasto_12m: gasto12mNumero,
+    en_riesgo: cliente.enRiesgo,
+    dias_sin_actividad: cliente.diasSinActividad,
+    movimientos: movimientos.map((m) => ({
+      fecha: m.fecha,
+      tipo: m.tipo,
+      referencia: m.referencia,
+      puntos: m.puntos,
+    })),
     cliente: {
       id: cliente.id,
       nombre: cliente.nombre,
@@ -75,16 +91,11 @@ export default defineEventHandler(async (event) => {
       telefono: cliente.telefono,
       fecha_nacimiento: cliente.fechaNacimiento,
       nivel: cliente.nivel,
+      gasto_12m: gasto12mNumero,
       puntos_acumulados: cliente.puntosAcumulados,
       puntos_disponibles: cliente.puntosDisponibles,
       en_riesgo: cliente.enRiesgo,
       dias_sin_actividad: cliente.diasSinActividad,
     },
-    movimientos: movimientos.map((m) => ({
-      fecha: m.fecha,
-      tipo: m.tipo,
-      puntos: m.puntos,
-      referencia: m.referencia,
-    })),
   }
 })

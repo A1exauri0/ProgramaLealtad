@@ -3,7 +3,7 @@
 // Consolida perfil, saldo, recompensas canjeables, cupones e historial de movimientos
 // ==============================================================================
 
-import { eq, desc } from 'drizzle-orm'
+import { eq, desc, sql } from 'drizzle-orm'
 import { db } from '~~/database/conexion'
 import { clientes, recompensas, canjes, cupones, movimientosPuntos } from '~~/database/schema/index'
 import { exigirSesionPortal } from '~~/server/utils/jwtPortal'
@@ -40,7 +40,22 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: 'Cliente no encontrado.' })
   }
 
-  // 2. Consultar catálogo de recompensas activas
+  // 2. Consultar conteo de canjes activos por recompensa para este cliente (límite por cliente)
+  const conteoCanjesPorRecompensa = await db
+    .select({
+      recompensaId: canjes.recompensaId,
+      cantidad: sql<number>`count(*)::int`,
+    })
+    .from(canjes)
+    .where(sql`${canjes.clienteId} = ${cliente.id} AND ${canjes.estatus} != 'cancelado'`)
+    .groupBy(canjes.recompensaId)
+
+  const mapaCanjesCliente = new Map<number, number>()
+  for (const fila of conteoCanjesPorRecompensa) {
+    mapaCanjesCliente.set(fila.recompensaId, Number(fila.cantidad))
+  }
+
+  // 3. Consultar catálogo de recompensas activas
   const catalogoRecompensas = await db
     .select()
     .from(recompensas)
@@ -54,10 +69,17 @@ export default defineEventHandler(async (event) => {
     const tienePuntos = (cliente.puntosDisponibles || 0) >= rec.puntosRequeridos
     const tieneNivel = nivelClienteNum >= nivelMinimoNum
     const tieneStock = rec.stock === null || rec.stock > 0
+    const canjesRealizados = mapaCanjesCliente.get(rec.id) || 0
+    const excedeLimite =
+      rec.limitePorCliente !== null &&
+      rec.limitePorCliente !== undefined &&
+      canjesRealizados >= rec.limitePorCliente
 
     let motivoBloqueo: string | null = null
     if (!tieneStock) {
       motivoBloqueo = 'Agotado temporalmente'
+    } else if (excedeLimite) {
+      motivoBloqueo = `Límite alcanzado (${rec.limitePorCliente} por cliente)`
     } else if (!tieneNivel) {
       motivoBloqueo = `Requiere nivel ${rec.nivelMinimo}`
     } else if (!tienePuntos) {
@@ -67,7 +89,8 @@ export default defineEventHandler(async (event) => {
 
     return {
       ...rec,
-      puedeCanjear: tienePuntos && tieneNivel && tieneStock,
+      canjesRealizados,
+      puedeCanjear: tienePuntos && tieneNivel && tieneStock && !excedeLimite,
       motivoBloqueo,
     }
   })
@@ -125,7 +148,7 @@ export default defineEventHandler(async (event) => {
     .orderBy(desc(movimientosPuntos.fecha), desc(movimientosPuntos.id))
     .limit(50)
 
-  // 6. Cálculo de avance de nivel
+  // 6. Cálculo de avance de nivel según umbrales oficiales (Plata: $150,000 MXN, Oro: > $400,000 MXN)
   const gasto12mNum = Number(cliente.gasto12m || 0)
   let siguienteNivel: string | null = null
   let gastoParaSiguiente = 0
@@ -133,12 +156,48 @@ export default defineEventHandler(async (event) => {
 
   if (cliente.nivel === 'Bronce') {
     siguienteNivel = 'Plata'
-    gastoParaSiguiente = Math.max(0, 5000 - gasto12mNum)
-    porcentajeNivel = Math.min(100, Math.round((gasto12mNum / 5000) * 100))
+    gastoParaSiguiente = Math.max(0, 150000 - gasto12mNum)
+    porcentajeNivel = Math.min(100, Math.round((gasto12mNum / 150000) * 100))
   } else if (cliente.nivel === 'Plata') {
     siguienteNivel = 'Oro'
-    gastoParaSiguiente = Math.max(0, 15000 - gasto12mNum)
-    porcentajeNivel = Math.min(100, Math.round(((gasto12mNum - 5000) / 10000) * 100))
+    gastoParaSiguiente = Math.max(0, 400000.01 - gasto12mNum)
+    porcentajeNivel = Math.min(100, Math.round(((gasto12mNum - 150000) / 250000) * 100))
+  }
+
+  // 7. Notificaciones del portal (Punto extra: canje registrado, producto entregado y cupón por vencer)
+  const notificaciones: Array<{ id: string; tipo: 'info' | 'exito' | 'alerta'; titulo: string; mensaje: string }> = []
+  const ahoraMs = Date.now()
+
+  for (const cj of misCanjes.slice(0, 5)) {
+    if (cj.estatus === 'pendiente') {
+      notificaciones.push({
+        id: `canje-pend-${cj.id}`,
+        tipo: 'info',
+        titulo: 'Canje registrado',
+        mensaje: `Tu solicitud de "${cj.recompensaNombre}" está pendiente de entrega en tienda.`,
+      })
+    } else if (cj.estatus === 'entregado' && cj.recompensaTipo === 'producto') {
+      notificaciones.push({
+        id: `canje-ent-${cj.id}`,
+        tipo: 'exito',
+        titulo: 'Producto entregado',
+        mensaje: `Tu recompensa "${cj.recompensaNombre}" fue entregada satisfactoriamente.`,
+      })
+    }
+  }
+
+  for (const cup of misCupones) {
+    if (cup.estatus === 'vigente' && cup.fechaVencimiento) {
+      const diasParaVencer = Math.ceil((new Date(cup.fechaVencimiento).getTime() - ahoraMs) / (1000 * 60 * 60 * 24))
+      if (diasParaVencer >= 0 && diasParaVencer <= 7) {
+        notificaciones.push({
+          id: `cupon-venc-${cup.id}`,
+          tipo: 'alerta',
+          titulo: 'Cupón próximo a vencer',
+          mensaje: `Tu cupón ${cup.codigo} (${cup.recompensaNombre}) vence en ${diasParaVencer} día(s).`,
+        })
+      }
+    }
   }
 
   return {
@@ -153,5 +212,6 @@ export default defineEventHandler(async (event) => {
     cupones: misCupones,
     canjes: misCanjes,
     movimientos: misMovimientos,
+    notificaciones,
   }
 })

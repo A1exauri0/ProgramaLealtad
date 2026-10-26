@@ -1,5 +1,52 @@
 <template>
   <div class="space-y-8">
+    <!-- Bandeja de Notificaciones del Portal (NotificacionesPortalBanner) -->
+    <div v-if="datosDashboard?.notificaciones?.length" class="space-y-2.5">
+      <div
+        v-for="notif in datosDashboard.notificaciones"
+        :key="notif.id"
+        class="flex items-start sm:items-center justify-between gap-3 px-4 py-3 rounded-2xl border text-xs shadow-xs"
+        :class="
+          notif.tipo === 'cupon_por_vencer'
+            ? 'bg-amber-50 border-amber-200 text-amber-950'
+            : notif.tipo === 'producto_entregado'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
+              : 'bg-white border-neutral-200 text-neutral-800'
+        "
+      >
+        <div class="flex items-start sm:items-center gap-3">
+          <div
+            class="size-8 rounded-xl flex items-center justify-center shrink-0"
+            :class="
+              notif.tipo === 'cupon_por_vencer'
+                ? 'bg-amber-100 text-amber-700'
+                : notif.tipo === 'producto_entregado'
+                  ? 'bg-emerald-100 text-emerald-700'
+                  : 'bg-neutral-900 text-white'
+            "
+          >
+            <UIcon
+              :name="
+                notif.tipo === 'cupon_por_vencer'
+                  ? 'i-lucide-clock-alert'
+                  : notif.tipo === 'producto_entregado'
+                    ? 'i-lucide-package-check'
+                    : 'i-lucide-bell-ring'
+              "
+              class="size-4"
+            />
+          </div>
+          <div>
+            <div class="font-bold">{{ notif.titulo }}</div>
+            <div class="text-neutral-600">{{ notif.mensaje }}</div>
+          </div>
+        </div>
+        <span class="text-[11px] font-mono text-neutral-400 shrink-0">
+          {{ formatearFecha(notif.fecha) }}
+        </span>
+      </div>
+    </div>
+
     <!-- Tarjeta de Bienvenida y Estatus de Lealtad (ResumenKpiCard) -->
     <div class="bg-white rounded-3xl p-6 sm:p-8 border border-neutral-200 shadow-sm">
       <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
@@ -58,7 +105,7 @@
     </div>
 
     <!-- Navegación por Pestañas del Portal -->
-    <div class="flex border-b border-neutral-200 gap-6">
+    <div class="flex flex-wrap border-b border-neutral-200 gap-6">
       <button
         type="button"
         class="pb-3 text-sm font-bold transition-colors border-b-2 flex items-center gap-2"
@@ -69,6 +116,19 @@
         <span>Catálogo de Beneficios</span>
         <UBadge color="neutral" variant="subtle" size="xs">
           {{ datosDashboard?.recompensas?.length || 0 }}
+        </UBadge>
+      </button>
+
+      <button
+        type="button"
+        class="pb-3 text-sm font-bold transition-colors border-b-2 flex items-center gap-2"
+        :class="pestanaActiva === 'canjes' ? 'border-neutral-900 text-neutral-900' : 'border-transparent text-neutral-400 hover:text-neutral-700'"
+        @click="pestanaActiva = 'canjes'"
+      >
+        <UIcon name="i-lucide-shopping-bag" class="size-4" />
+        <span>Mis Canjes</span>
+        <UBadge v-if="datosDashboard?.canjes?.length" color="neutral" variant="subtle" size="xs">
+          {{ datosDashboard?.canjes?.length }}
         </UBadge>
       </button>
 
@@ -196,6 +256,77 @@
               </UBadge>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PESTAÑA 1.5: SEGUIMIENTO DE MIS CANJES -->
+    <div v-if="pestanaActiva === 'canjes'" class="space-y-4">
+      <div class="bg-white rounded-3xl border border-neutral-200 overflow-hidden shadow-xs">
+        <div class="p-5 border-b border-neutral-100 flex items-center justify-between">
+          <div>
+            <h3 class="font-bold text-base text-neutral-900">
+              Seguimiento de Mis Canjes
+            </h3>
+            <p class="text-xs text-neutral-500">
+              Consulta el estado de entrega de tus productos o el estatus de tus beneficios canjeados.
+            </p>
+          </div>
+          <span class="text-xs text-neutral-400">{{ datosDashboard?.canjes?.length || 0 }} canjes</span>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-neutral-50 border-b border-neutral-100 text-neutral-500 font-bold uppercase tracking-wider text-[11px]">
+              <tr>
+                <th class="py-3 px-4">Folio</th>
+                <th class="py-3 px-4">Recompensa</th>
+                <th class="py-3 px-4">Tipo</th>
+                <th class="py-3 px-4">Puntos Usados</th>
+                <th class="py-3 px-4">Estatus de Entrega</th>
+                <th class="py-3 px-4">Fecha</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-neutral-100">
+              <tr v-if="!datosDashboard?.canjes?.length">
+                <td colspan="6" class="py-8 text-center text-neutral-400">
+                  Aún no has realizado ningún canje de recompensas.
+                </td>
+              </tr>
+              <tr
+                v-for="canje in datosDashboard?.canjes"
+                :key="canje.id"
+                class="hover:bg-neutral-50/50 transition-colors"
+              >
+                <td class="py-3 px-4 font-mono font-semibold text-neutral-500">
+                  #{{ canje.id }}
+                </td>
+                <td class="py-3 px-4 font-bold text-neutral-900">
+                  {{ canje.recompensaNombre }}
+                </td>
+                <td class="py-3 px-4">
+                  <UBadge color="neutral" variant="subtle" size="xs">
+                    {{ canje.recompensaTipo === 'descuento' ? 'Cupón' : 'Producto Físico' }}
+                  </UBadge>
+                </td>
+                <td class="py-3 px-4 font-mono font-semibold text-neutral-800">
+                  -{{ formatearEntero(canje.puntosUsados) }} pts
+                </td>
+                <td class="py-3 px-4">
+                  <UBadge
+                    :color="canje.estatus === 'entregado' ? 'success' : canje.estatus === 'pendiente' ? 'warning' : 'error'"
+                    variant="subtle"
+                    size="xs"
+                  >
+                    {{ canje.estatus === 'entregado' ? 'Entregado' : canje.estatus === 'pendiente' ? 'Pendiente de Entrega' : 'Cancelado (Puntos Devueltos)' }}
+                  </UBadge>
+                </td>
+                <td class="py-3 px-4 font-mono text-neutral-500">
+                  {{ formatearFecha(canje.creadoEn) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -397,7 +528,7 @@ definePageMeta({
 const toast = useToast()
 const requestFetch = useRequestFetch()
 
-const pestanaActiva = ref<'catalogo' | 'cupones' | 'movimientos'>('catalogo')
+const pestanaActiva = ref<'catalogo' | 'canjes' | 'cupones' | 'movimientos'>('catalogo')
 
 // Estado del Modal de Canje
 const recompensaACanjear = ref<any>(null)

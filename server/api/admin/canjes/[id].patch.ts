@@ -24,12 +24,12 @@ export default defineEventHandler(async (event) => {
   }
 
   const body = await readBody(event)
-  const accion = body?.accion as 'entregar' | 'cancelar' | undefined
+  const accion = body?.accion as 'entregar' | 'cancelar' | 'aplicar_cupon' | undefined
 
-  if (!accion || !['entregar', 'cancelar'].includes(accion)) {
+  if (!accion || !['entregar', 'cancelar', 'aplicar_cupon'].includes(accion)) {
     throw createError({
       statusCode: 400,
-      statusMessage: 'Acción no válida. Debe ser "entregar" o "cancelar".',
+      statusMessage: 'Acción no válida. Debe ser "entregar", "aplicar_cupon" o "cancelar".',
     })
   }
 
@@ -51,7 +51,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  // ACCIÓN 1: ENTREGAR
+  // ACCIÓN 1: ENTREGAR PRODUCTO
   if (accion === 'entregar') {
     if (canjeActual.estatus === 'entregado') {
       throw createError({
@@ -74,6 +74,56 @@ export default defineEventHandler(async (event) => {
       ok: true,
       mensaje: 'Canje marcado como entregado satisfactoriamente.',
       canje: actualizado,
+    }
+  }
+
+  // ACCIÓN 2: APLICAR CUPÓN (Marcar cupón como 'usado')
+  if (accion === 'aplicar_cupon') {
+    const [cuponActual] = await db
+      .select()
+      .from(cupones)
+      .where(eq(cupones.canjeId, canjeId))
+      .limit(1)
+
+    if (!cuponActual) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'Este canje no tiene un cupón de descuento asociado.',
+      })
+    }
+
+    if (cuponActual.estatus !== 'vigente') {
+      throw createError({
+        statusCode: 400,
+        statusMessage: `El cupón no se puede aplicar porque su estado actual es "${cuponActual.estatus}".`,
+      })
+    }
+
+    if (cuponActual.fechaVencimiento && new Date(cuponActual.fechaVencimiento) < new Date()) {
+      await db
+        .update(cupones)
+        .set({ estatus: 'vencido' })
+        .where(eq(cupones.id, cuponActual.id))
+
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'El cupón ha expirado y fue marcado como vencido.',
+      })
+    }
+
+    const [cuponUsado] = await db
+      .update(cupones)
+      .set({
+        estatus: 'usado',
+        usadoEn: new Date(),
+      })
+      .where(eq(cupones.id, cuponActual.id))
+      .returning()
+
+    return {
+      ok: true,
+      mensaje: `Cupón ${cuponUsado?.codigo} aplicado y marcado como usado.`,
+      cupon: cuponUsado,
     }
   }
 

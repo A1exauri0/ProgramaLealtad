@@ -5,7 +5,19 @@
       titulo="Próximos Cumpleaños"
       descripcion="Clientes que celebran su cumpleaños en los próximos 7 días a partir del corte (del 30 de abril al 7 de mayo de 2026)."
       badge-color="neutral"
-    />
+    >
+      <template v-if="puedeExportarCsv" #acciones>
+        <a
+          href="/api/admin/reportes/cumpleanos-csv"
+          target="_blank"
+          download="proximos_cumpleanos.csv"
+          class="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-neutral-900 text-white hover:bg-neutral-800 transition-colors shadow-xs"
+        >
+          <UIcon name="i-lucide-download" class="size-4" />
+          <span>Descargar Reporte CSV</span>
+        </a>
+      </template>
+    </CabeceraPagina>
 
     <!-- Componente Tabla CRUD Reutilizable -->
     <TablaCrud
@@ -23,6 +35,18 @@
       @cambiar-pagina="p => paginaActual = p"
       @cambiar-tamanio="t => { tamanioPagina = t; paginaActual = 1 }"
     >
+      <!-- Acciones en la barra de la tabla -->
+      <template v-if="puedeExportarCsv" #acciones>
+        <a
+          href="/api/admin/reportes/cumpleanos-csv"
+          target="_blank"
+          download="proximos_cumpleanos.csv"
+          class="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-neutral-900 text-white hover:bg-neutral-800 transition-colors shadow-xs"
+        >
+          <UIcon name="i-lucide-download" class="size-4" />
+          <span>Exportar CSV</span>
+        </a>
+      </template>
       <!-- Slots de Celdas Personalizadas -->
       <template #id-cell="{ row }">
         <span class="font-mono text-xs text-neutral-500 font-semibold">#{{ row.original.id }}</span>
@@ -65,15 +89,88 @@
       </template>
 
       <template #acciones-cell="{ row }">
-        <NuxtLink
-          :to="`/admin/clientes/${row.original.id}`"
-          class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors"
-        >
-          <UIcon name="i-lucide-eye" class="size-3.5" />
-          <span>Ver Ficha</span>
-        </NuxtLink>
+        <div class="flex items-center gap-2">
+          <UButton
+            color="neutral"
+            variant="outline"
+            size="xs"
+            icon="i-lucide-cake"
+            @click="abrirMensajeModal(row.original)"
+          >
+            Felicitar
+          </UButton>
+          <NuxtLink
+            :to="`/admin/clientes/${row.original.id}`"
+            class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors"
+          >
+            <UIcon name="i-lucide-eye" class="size-3.5" />
+            <span>Ver Ficha</span>
+          </NuxtLink>
+        </div>
       </template>
     </TablaCrud>
+
+    <!-- Modal de Mensaje Sugerido con Cupón para Cumpleañero (MensajeCumpleanosModal) -->
+    <UModal
+      v-model:open="mostrarMensajeModal"
+      title="Felicitación y Cupón de Cumpleaños"
+      description="Mensaje sugerido listo para enviar por WhatsApp o Correo Electrónico."
+    >
+      <template #body>
+        <div v-if="clienteSeleccionado" class="space-y-4">
+          <div class="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 space-y-1">
+            <div class="font-bold flex items-center gap-1.5">
+              <UIcon name="i-lucide-party-popper" class="size-4 text-emerald-600" />
+              <span>Cumpleañero: {{ clienteSeleccionado.nombre }} ({{ clienteSeleccionado.fechaCumpleanos }})</span>
+            </div>
+            <div>
+              Cupón de regalo: <span class="font-mono font-bold bg-white px-1.5 py-0.5 rounded border border-emerald-300">{{ codigoCuponCumple }}</span> ($200 MXN de regalo en su compra de cumpleaños)
+            </div>
+          </div>
+
+          <UFormField label="Mensaje personalizado">
+            <UTextarea
+              v-model="textoMensajeSugerido"
+              :rows="5"
+              class="w-full font-sans text-xs"
+            />
+          </UFormField>
+
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-neutral-200">
+            <UButton
+              color="neutral"
+              variant="outline"
+              size="sm"
+              icon="i-lucide-copy"
+              @click="copiarMensaje"
+            >
+              Copiar Texto
+            </UButton>
+
+            <div class="flex items-center gap-2">
+              <a
+                v-if="clienteSeleccionado.correo"
+                :href="enlaceCorreo"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-neutral-100 text-neutral-800 hover:bg-neutral-200 transition-colors"
+              >
+                <UIcon name="i-lucide-mail" class="size-4" />
+                <span>Abrir Correo</span>
+              </a>
+              <a
+                v-if="enlaceWhatsApp"
+                :href="enlaceWhatsApp"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+              >
+                <UIcon name="i-lucide-send" class="size-4" />
+                <span>Enviar por WhatsApp</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>
 
@@ -95,9 +192,52 @@ definePageMeta({
 // ------------------------------------------------------------------------------
 // ESTADO Y PAGINACIÓN ADAPTADA A PANTALLA
 // ------------------------------------------------------------------------------
+const toast = useToast()
+const { tienePermiso } = useAuth()
+const puedeExportarCsv = computed(() => tienePermiso('exportar_reportes_csv'))
+
 const terminoBusqueda = ref('')
 const paginaActual = ref(1)
 const { tamanioPagina } = usePaginacionPantalla({ margenOffset: 340 })
+
+// Estado del Modal de Felicitación de Cumpleaños (MensajeCumpleanosModal)
+const mostrarMensajeModal = ref(false)
+const clienteSeleccionado = ref<any>(null)
+const textoMensajeSugerido = ref('')
+const codigoCuponCumple = computed(() => {
+  if (!clienteSeleccionado.value) return 'FELIZ-CUMPLE'
+  return `CUMPLE200-C${clienteSeleccionado.value.id}`
+})
+
+function abrirMensajeModal(cliente: any) {
+  clienteSeleccionado.value = cliente
+  const puntosStr = formatearEntero(cliente.puntosDisponibles)
+  textoMensajeSugerido.value = `🎂 ¡Muchas felicidades por tu cumpleaños, ${cliente.nombre}! 🎉 En nuestra tienda queremos celebrar contigo (${cliente.fechaCumpleanos}). Por ser miembro Nivel ${cliente.nivel} (con ${puntosStr} puntos acumulados), te regalamos el cupón especial ${codigoCuponCumple.value} por $200 MXN de descuento en tu compra de cumpleaños. ¡Que pases un excelente día!`
+  mostrarMensajeModal.value = true
+}
+
+const enlaceWhatsApp = computed(() => {
+  if (!clienteSeleccionado.value?.telefono) return ''
+  const digitos = String(clienteSeleccionado.value.telefono).replace(/\D/g, '')
+  if (!digitos) return ''
+  return `https://wa.me/${digitos}?text=${encodeURIComponent(textoMensajeSugerido.value)}`
+})
+
+const enlaceCorreo = computed(() => {
+  if (!clienteSeleccionado.value?.correo) return ''
+  const asunto = encodeURIComponent(`🎂 ¡Feliz cumpleaños, ${clienteSeleccionado.value.nombre}! Un regalo especial para ti`)
+  const cuerpo = encodeURIComponent(textoMensajeSugerido.value)
+  return `mailto:${clienteSeleccionado.value.correo}?subject=${asunto}&body=${cuerpo}`
+})
+
+async function copiarMensaje() {
+  try {
+    await navigator.clipboard.writeText(textoMensajeSugerido.value)
+    toast.add({ title: 'Mensaje copiado', description: 'La felicitación de cumpleaños se copió al portapapeles.', color: 'success' })
+  } catch {
+    toast.add({ title: 'Error', description: 'No se pudo copiar automáticamente.', color: 'error' })
+  }
+}
 
 // ------------------------------------------------------------------------------
 // CARGA DE CLIENTES CON CUMPLEAÑOS

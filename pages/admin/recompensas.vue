@@ -4,7 +4,20 @@
     <CabeceraPagina
       titulo="Catálogo de Recompensas"
       descripcion="Administración de productos físicos y cupones de descuento canjeables por puntos de lealtad."
-    />
+    >
+      <template v-if="tienePermiso('gestionar_catalogo_recompensas')" #acciones>
+        <UButton
+          color="neutral"
+          variant="outline"
+          size="sm"
+          icon="i-lucide-cloud-download"
+          :loading="importandoProductos"
+          @click="importarDesdeFakeApi"
+        >
+          Importar de /products
+        </UButton>
+      </template>
+    </CabeceraPagina>
 
     <!-- Mensajes de Notificación -->
     <div
@@ -277,7 +290,27 @@
             <UTextarea v-model="formularioCrear.descripcion" placeholder="Detalles de la recompensa..." class="w-full" :rows="2" />
           </UFormField>
 
-          <div class="grid grid-cols-2 gap-3">
+          <!-- Foto en Supabase Storage -->
+          <div class="p-3 bg-neutral-50 rounded-xl border border-neutral-200 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-neutral-800">Foto de la Recompensa (Supabase Storage)</span>
+              <span v-if="subiendoFoto" class="text-[11px] font-semibold text-neutral-600">Subiendo imagen...</span>
+            </div>
+            <div class="flex items-center gap-3">
+              <div v-if="formularioCrear.fotoUrl" class="size-12 rounded-lg overflow-hidden border border-neutral-200 bg-white shrink-0">
+                <img :src="formularioCrear.fotoUrl" alt="Preview" class="w-full h-full object-cover" />
+              </div>
+              <input
+                type="file"
+                accept="image/*"
+                class="block w-full text-xs text-neutral-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-neutral-900 file:text-white hover:file:bg-neutral-800"
+                @change="e => manejarSubidaFoto(e, 'crear')"
+              />
+            </div>
+            <UInput v-model="formularioCrear.fotoUrl" placeholder="O pega la URL pública de la imagen..." class="w-full text-xs" />
+          </div>
+
+          <div class="grid grid-cols-3 gap-3">
             <UFormField label="Puntos Requeridos *" name="puntosRequeridos">
               <UInput v-model.number="formularioCrear.puntosRequeridos" type="number" placeholder="Ej. 5000" class="w-full font-mono" />
             </UFormField>
@@ -291,6 +324,10 @@
                 <option value="Plata">Plata</option>
                 <option value="Oro">Oro</option>
               </select>
+            </UFormField>
+
+            <UFormField label="Límite / Cliente" name="limitePorCliente">
+              <UInput v-model.number="formularioCrear.limitePorCliente" type="number" placeholder="Ilimitado" class="w-full font-mono" />
             </UFormField>
           </div>
 
@@ -371,7 +408,27 @@
             <UTextarea v-model="formularioEditar.descripcion" class="w-full" :rows="2" />
           </UFormField>
 
-          <div class="grid grid-cols-2 gap-3">
+          <!-- Foto en Supabase Storage -->
+          <div class="p-3 bg-neutral-50 rounded-xl border border-neutral-200 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-neutral-800">Foto de la Recompensa (Supabase Storage)</span>
+              <span v-if="subiendoFoto" class="text-[11px] font-semibold text-neutral-600">Subiendo imagen...</span>
+            </div>
+            <div class="flex items-center gap-3">
+              <div v-if="formularioEditar.fotoUrl" class="size-12 rounded-lg overflow-hidden border border-neutral-200 bg-white shrink-0">
+                <img :src="formularioEditar.fotoUrl" alt="Preview" class="w-full h-full object-cover" />
+              </div>
+              <input
+                type="file"
+                accept="image/*"
+                class="block w-full text-xs text-neutral-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-neutral-900 file:text-white hover:file:bg-neutral-800"
+                @change="e => manejarSubidaFoto(e, 'editar')"
+              />
+            </div>
+            <UInput v-model="formularioEditar.fotoUrl" placeholder="URL pública de la imagen..." class="w-full text-xs" />
+          </div>
+
+          <div class="grid grid-cols-3 gap-3">
             <UFormField label="Puntos Requeridos *" name="puntosRequeridos">
               <UInput v-model.number="formularioEditar.puntosRequeridos" type="number" class="w-full font-mono" />
             </UFormField>
@@ -385,6 +442,10 @@
                 <option value="Plata">Plata</option>
                 <option value="Oro">Oro</option>
               </select>
+            </UFormField>
+
+            <UFormField label="Límite / Cliente" name="limitePorCliente">
+              <UInput v-model.number="formularioEditar.limitePorCliente" type="number" placeholder="Ilimitado" class="w-full font-mono" />
             </UFormField>
           </div>
 
@@ -458,6 +519,8 @@ const mostrarEditarModal = ref(false)
 
 // Cargas activas
 const guardandoRecompensa = ref(false)
+const subiendoFoto = ref(false)
+const importandoProductos = ref(false)
 const alternandoId = ref<number | null>(null)
 const recompensaSeleccionada = ref<any>(null)
 
@@ -466,9 +529,11 @@ const formularioCrear = reactive({
   tipo: 'producto' as 'producto' | 'descuento',
   nombre: '',
   descripcion: '',
+  fotoUrl: '',
   puntosRequeridos: 1000,
   nivelMinimo: 'Bronce',
   stock: null as number | null,
+  limitePorCliente: null as number | null,
   descuentoTipo: 'porcentaje' as 'porcentaje' | 'monto_fijo',
   descuentoValor: '',
   compraMinimaMxn: '',
@@ -479,9 +544,11 @@ const formularioCrear = reactive({
 const formularioEditar = reactive({
   nombre: '',
   descripcion: '',
+  fotoUrl: '',
   puntosRequeridos: 1000,
   nivelMinimo: 'Bronce',
   stock: null as number | null,
+  limitePorCliente: null as number | null,
   descuentoValor: '',
   compraMinimaMxn: '',
   vigenciaDias: 30,
@@ -551,14 +618,67 @@ function abrirCrearModal() {
   formularioCrear.tipo = 'producto'
   formularioCrear.nombre = ''
   formularioCrear.descripcion = ''
+  formularioCrear.fotoUrl = ''
   formularioCrear.puntosRequeridos = 1000
   formularioCrear.nivelMinimo = 'Bronce'
   formularioCrear.stock = null
+  formularioCrear.limitePorCliente = null
   formularioCrear.descuentoTipo = 'porcentaje'
   formularioCrear.descuentoValor = ''
   formularioCrear.compraMinimaMxn = ''
   formularioCrear.vigenciaDias = 30
   mostrarCrearModal.value = true
+}
+
+async function manejarSubidaFoto(evento: Event, destino: 'crear' | 'editar') {
+  const input = evento.target as HTMLInputElement
+  const archivo = input.files?.[0]
+  if (!archivo) return
+
+  subiendoFoto.value = true
+  mensajeAccion.value = ''
+  errorAccion.value = false
+
+  try {
+    const formData = new FormData()
+    formData.append('foto', archivo)
+
+    const res: any = await $fetch('/api/admin/recompensas/subir-foto', {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (destino === 'crear') {
+      formularioCrear.fotoUrl = res.fotoUrl
+    } else {
+      formularioEditar.fotoUrl = res.fotoUrl
+    }
+  } catch (err: any) {
+    errorAccion.value = true
+    mensajeAccion.value = err.data?.statusMessage || err.message || 'Error al subir la foto a Supabase Storage.'
+  } finally {
+    subiendoFoto.value = false
+    input.value = ''
+  }
+}
+
+async function importarDesdeFakeApi() {
+  importandoProductos.value = true
+  mensajeAccion.value = ''
+  errorAccion.value = false
+
+  try {
+    const res: any = await $fetch('/api/admin/recompensas/importar-productos', {
+      method: 'POST',
+    })
+    mensajeAccion.value = res.mensaje
+    await refrescarRecompensas()
+  } catch (err: any) {
+    errorAccion.value = true
+    mensajeAccion.value = err.data?.statusMessage || err.message || 'Error al importar productos.'
+  } finally {
+    importandoProductos.value = false
+  }
 }
 
 async function guardarNuevaRecompensa() {
@@ -593,9 +713,11 @@ function abrirEditarModal(rec: any) {
   recompensaSeleccionada.value = rec
   formularioEditar.nombre = rec.nombre
   formularioEditar.descripcion = rec.descripcion || ''
+  formularioEditar.fotoUrl = rec.fotoUrl || ''
   formularioEditar.puntosRequeridos = rec.puntosRequeridos
   formularioEditar.nivelMinimo = rec.nivelMinimo
   formularioEditar.stock = rec.stock
+  formularioEditar.limitePorCliente = rec.limitePorCliente ?? null
   formularioEditar.descuentoValor = rec.descuentoValor || ''
   formularioEditar.compraMinimaMxn = rec.compraMinimaMxn || ''
   formularioEditar.vigenciaDias = rec.vigenciaDias || 30

@@ -23,12 +23,13 @@ export interface RespuestaPaginadaFakeApi<T> {
 /**
  * Función base para realizar peticiones HTTP autenticadas a fakeapi.dev
  */
-async function realizarPeticionFakeApi<T>(
+export async function realizarPeticionFakeApi<T>(
   recurso: string,
   pagina = 1,
   porPagina = 100
 ): Promise<RespuestaPaginadaFakeApi<T>> {
-  const url = `${urlBase}/${recurso}?page=${pagina}&per_page=${porPagina}`
+  const rutaLimpia = recurso.startsWith('/') ? recurso.slice(1) : recurso
+  const url = `${urlBase}/${rutaLimpia}?page=${pagina}&per_page=${porPagina}`
 
   const respuesta = await fetch(url, {
     method: 'GET',

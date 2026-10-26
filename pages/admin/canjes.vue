@@ -119,6 +119,13 @@
           <code class="font-mono text-xs font-bold bg-neutral-100 text-neutral-800 px-1.5 py-0.5 rounded">
             {{ row.original.cuponCodigo }}
           </code>
+          <UBadge
+            :color="row.original.cuponEstatus === 'vigente' ? 'success' : row.original.cuponEstatus === 'usado' ? 'primary' : 'neutral'"
+            variant="subtle"
+            size="xs"
+          >
+            {{ row.original.cuponEstatus }}
+          </UBadge>
           <UButton
             color="neutral"
             variant="ghost"
@@ -149,6 +156,19 @@
             @click="abrirDetallesModal(row.original)"
           />
 
+          <!-- Botón Aplicar Cupón (Azul / Primario) -->
+          <UButton
+            v-if="tienePermiso('gestionar_canjes') && row.original.cuponId && row.original.cuponEstatus === 'vigente'"
+            color="neutral"
+            variant="solid"
+            size="xs"
+            icon="i-lucide-ticket-check"
+            title="Aplicar cupón (marcar como usado)"
+            @click="aplicarCuponDescuento(row.original)"
+          >
+            Aplicar Cupón
+          </UButton>
+
           <!-- Botón Entregar Producto (Verde) -->
           <UButton
             v-if="tienePermiso('gestionar_canjes') && row.original.estatus === 'pendiente'"
@@ -162,7 +182,7 @@
 
           <!-- Botón Cancelar Canje (Rojo) -->
           <UButton
-            v-if="tienePermiso('gestionar_canjes') && row.original.estatus === 'pendiente'"
+            v-if="tienePermiso('gestionar_canjes') && row.original.estatus !== 'cancelado' && row.original.cuponEstatus !== 'usado'"
             color="error"
             variant="subtle"
             size="xs"
@@ -535,6 +555,27 @@ async function confirmarEntrega(canje: CanjeRegistro) {
     toast.add({
       title: 'Error al entregar',
       description: error.data?.statusMessage || error.message || 'No se pudo actualizar el canje.',
+      color: 'error',
+    })
+  }
+}
+
+async function aplicarCuponDescuento(canje: CanjeRegistro) {
+  try {
+    const res = await $fetch<{ ok: boolean, mensaje: string }>(`/api/admin/canjes/${canje.id}`, {
+      method: 'PATCH',
+      body: { accion: 'aplicar_cupon' },
+    })
+    toast.add({
+      title: 'Cupón Aplicado',
+      description: res.mensaje,
+      color: 'success',
+    })
+    await refrescarCanjes()
+  } catch (error: any) {
+    toast.add({
+      title: 'Error al aplicar cupón',
+      description: error.data?.statusMessage || error.message || 'No se pudo aplicar el cupón.',
       color: 'error',
     })
   }

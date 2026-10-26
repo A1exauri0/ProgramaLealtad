@@ -79,7 +79,7 @@ export function calcularPuntosPorPago(montoMxn: number, estatusPago: string): nu
  * - Oro: Más de $400,000 MXN
  */
 export function determinarNivelCliente(gasto12MesesMxn: number): 'Bronce' | 'Plata' | 'Oro' {
-  if (gasto12MesesMxn >= 400000) {
+  if (gasto12MesesMxn > 400000) {
     return 'Oro'
   }
   if (gasto12MesesMxn >= 150000) {
