@@ -14,7 +14,9 @@
     "db:seed": "tsx database/sembrar.ts",
     "db:sync": "tsx database/sincronizar.ts",
     "db:token": "tsx database/crearToken.ts",
+    "db:rls": "tsx database/habilitarRls.ts",
     "db:studio": "drizzle-kit studio",
+    "test": "tsx database/probarReglas.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },
